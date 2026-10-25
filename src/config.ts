@@ -29,9 +29,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (!['pglite', 'postgres', 'dsql'].includes(dialect)) throw new Error(`Unknown DB_DIALECT ${dialect}`);
   if (dialect === 'postgres' && !env.DATABASE_URL) throw new Error('DATABASE_URL required for DB_DIALECT=postgres');
   if (dialect === 'dsql' && !env.DSQL_ENDPOINT) throw new Error('DSQL_ENDPOINT required for DB_DIALECT=dsql');
-  const mailDriver = (env.MAIL_DRIVER ?? (env.SMTP_USER ? 'smtp' : env.SENDER_EMAIL ? 'ses' : 'console')) as MailDriver;
+  const mailDriver = (env.MAIL_DRIVER ?? (env.SMTP_USER ?? env.SMTP_USERNAME ? 'smtp' : env.SENDER_EMAIL ? 'ses' : 'console')) as MailDriver;
   if (!['console', 'ses', 'smtp'].includes(mailDriver)) throw new Error(`Unknown MAIL_DRIVER ${mailDriver}`);
-  if (mailDriver === 'smtp' && !env.SMTP_USER) throw new Error('SMTP_USER required for MAIL_DRIVER=smtp');
+  if (mailDriver === 'smtp' && !(env.SMTP_USER ?? env.SMTP_USERNAME)) throw new Error('SMTP_USER required for MAIL_DRIVER=smtp');
   if (mailDriver === 'smtp' && !env.SMTP_PASSWORD && !env.SMTP_PASSWORD_PARAM) throw new Error('SMTP_PASSWORD or SMTP_PASSWORD_PARAM required for MAIL_DRIVER=smtp');
   return {
     dbDialect: dialect,
@@ -39,11 +39,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     dsqlEndpoint: env.DSQL_ENDPOINT,
     awsRegion: env.AWS_REGION ?? env.AWS_DEFAULT_REGION ?? 'us-east-1',
     mailDriver,
-    senderEmail: env.SENDER_EMAIL ?? env.SMTP_USER ?? 'registry@localhost',
+    senderEmail: env.SENDER_EMAIL ?? env.SMTP_USER ?? env.SMTP_USERNAME ?? 'registry@localhost',
     smtp: {
       host: env.SMTP_HOST ?? 'smtp.gmail.com',
       port: Number(env.SMTP_PORT ?? 465),
-      user: env.SMTP_USER ?? '',
+      user: env.SMTP_USER ?? env.SMTP_USERNAME ?? '',
       password: env.SMTP_PASSWORD,
       passwordParam: env.SMTP_PASSWORD_PARAM,
     },
