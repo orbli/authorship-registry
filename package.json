@@ -1,0 +1,32 @@
+{
+  "name": "authorship-registry",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Confidential registry of vetted reports about undisclosed AI-generated authorship, searchable by journal editors.",
+  "scripts": {
+    "dev": "DB_DIALECT=pglite MAIL_DRIVER=console tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "esbuild src/server.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/server.js --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\" --external:@electric-sql/pglite",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "migrate": "tsx src/cli/migrate.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-sesv2": "^3.1156.0",
+    "@aws-sdk/dsql-signer": "^3.1156.0",
+    "@hono/node-server": "^2.1.5",
+    "hono": "^4.13.14",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.11",
+    "@types/node": "^22",
+    "@types/pg": "^8",
+    "esbuild": "^0.27",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9",
+    "vitest": "^5.0.5"
+  },
+  "engines": { "node": ">=22" }
+}

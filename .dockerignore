@@ -1,0 +1,7 @@
+node_modules
+dist
+infra
+deploy
+.github
+test
+*.md

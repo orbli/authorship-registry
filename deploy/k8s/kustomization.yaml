@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: authorship-registry
+resources:
+  - namespace.yaml
+  - postgres.yaml
+  - app.yaml
+# Demo deployment for a homelab cluster. Fake data only: nothing here is
+# sized or secured for real misconduct reports. Create the two secrets first:
+#   kubectl -n authorship-registry create secret generic registry-db --from-literal=password=...
+#   kubectl -n authorship-registry create secret generic registry-app --from-literal=ADMIN_EMAIL=you@example.org
