@@ -13,7 +13,14 @@ export interface Mailer {
 }
 
 export function createMailer(cfg: Config): Mailer {
-  return cfg.mailDriver === 'ses' ? sesMailer(cfg) : consoleMailer();
+  switch (cfg.mailDriver) {
+    case 'ses':
+      return sesMailer(cfg);
+    case 'smtp':
+      return smtpMailer(cfg);
+    default:
+      return consoleMailer();
+  }
 }
 
 export function consoleMailer(): Mailer {
@@ -47,6 +54,33 @@ function sesMailer(cfg: Config): Mailer {
           },
         }),
       );
+    },
+  };
+}
+
+/**
+ * Any SMTP relay, e.g. Google Workspace with an app password (smtp.gmail.com:465).
+ * The password is read lazily: from env, or once from an SSM SecureString so it
+ * never has to live in a Lambda environment variable or a template.
+ */
+function smtpMailer(cfg: Config): Mailer {
+  let transportPromise: Promise<any> | undefined;
+  const transport = () =>
+    (transportPromise ??= (async () => {
+      let pass = cfg.smtp.password;
+      if (!pass && cfg.smtp.passwordParam) {
+        const { SSMClient, GetParameterCommand } = await import('@aws-sdk/client-ssm');
+        const r = await new SSMClient({ region: cfg.awsRegion }).send(new GetParameterCommand({ Name: cfg.smtp.passwordParam, WithDecryption: true }));
+        pass = r.Parameter?.Value;
+      }
+      if (!pass) throw new Error('SMTP password unavailable');
+      const { default: nodemailer } = await import('nodemailer');
+      return nodemailer.createTransport({ host: cfg.smtp.host, port: cfg.smtp.port, secure: cfg.smtp.port === 465, auth: { user: cfg.smtp.user, pass } });
+    })());
+  return {
+    async send(mail) {
+      const t = await transport();
+      await t.sendMail({ from: cfg.senderEmail, to: mail.to, subject: mail.subject, text: mail.text });
     },
   };
 }

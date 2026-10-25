@@ -14,19 +14,24 @@
   },
   "dependencies": {
     "@aws-sdk/client-sesv2": "^3.1156.0",
+    "@aws-sdk/client-ssm": "^3.1156.0",
     "@aws-sdk/dsql-signer": "^3.1156.0",
     "@hono/node-server": "^2.1.5",
     "hono": "^4.13.14",
+    "nodemailer": "^10.2.1",
     "pg": "^8.23.1"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.11",
     "@types/node": "^22",
+    "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8",
     "esbuild": "^0.27",
     "tsx": "^4.23.15",
     "typescript": "^5.9",
     "vitest": "^5.0.5"
   },
-  "engines": { "node": ">=22" }
+  "engines": {
+    "node": ">=22"
+  }
 }
