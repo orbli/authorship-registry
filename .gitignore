@@ -1,0 +1,10 @@
+.env
+.env.*
+*.pem
+node_modules/
+dist/
+.terraform/
+*.tfstate
+*.tfstate.backup
+.aws-sam/
+__pycache__/
