@@ -1,6 +1,10 @@
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { randomBytes } from 'node:crypto';
 import * as cdk from 'aws-cdk-lib';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
+import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
+import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as dsql from 'aws-cdk-lib/aws-dsql';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
@@ -24,8 +28,12 @@ export interface RegistryStackProps extends cdk.StackProps {
   smtpHost?: string;
   /** Seeded as the first admin so someone can sign in. */
   adminEmail?: string;
-  /** Public origin for links in emails. Omit to use the Function URL origin automatically. */
+  /** Public origin for links in emails. Omit to use the custom domain, else the Function URL origin. */
   baseUrl?: string;
+  /** Custom hostname, e.g. ada.orbb.li. Adds CloudFront in front of the Function URL; needs certificateArn. */
+  domainName?: string;
+  /** ACM certificate ARN for domainName. Must live in us-east-1 (CloudFront requirement). */
+  certificateArn?: string;
 }
 
 export class RegistryStack extends cdk.Stack {
@@ -55,6 +63,15 @@ export class RegistryStack extends cdk.Stack {
             SMTP_PASSWORD_PARAM: smtpPasswordParam,
           };
 
+    // --- Custom domain (optional): CloudFront terminates TLS for the hostname and relays to the
+    // Function URL. Function URLs cannot carry a custom hostname themselves, and Cloudflare's
+    // free plan cannot rewrite the Host header, so CloudFront is the cheapest correct front door
+    // (free tier: 1 TB + 10M requests/month). A per-deploy shared secret header lets the function
+    // refuse requests that bypass CloudFront and hit the raw Function URL.
+    if (props.domainName && !props.certificateArn) throw new Error('domainName requires certificateArn (ACM, us-east-1)');
+    const originSecret = props.domainName ? randomBytes(24).toString('hex') : undefined;
+    const publicUrl = props.baseUrl ?? (props.domainName ? `https://${props.domainName}` : undefined);
+
     // --- Web app: one Node.js function, zip-bundled with esbuild (no Docker), arm64 for price.
     const fn = new NodejsFunction(this, 'Web', {
       entry: path.join(appRoot, 'src', 'lambda.ts'),
@@ -81,7 +98,8 @@ export class RegistryStack extends cdk.Stack {
         DSQL_ENDPOINT: dsqlEndpoint,
         ...mailEnv,
         ...(props.adminEmail ? { ADMIN_EMAIL: props.adminEmail } : {}),
-        ...(props.baseUrl ? { BASE_URL: props.baseUrl } : {}),
+        ...(publicUrl ? { BASE_URL: publicUrl } : {}),
+        ...(originSecret ? { ORIGIN_SECRET: originSecret } : {}),
       },
     });
 
@@ -97,7 +115,28 @@ export class RegistryStack extends cdk.Stack {
     // before real traffic if rate limiting is needed.
     const url = fn.addFunctionUrl({ authType: lambda.FunctionUrlAuthType.NONE });
 
-    new cdk.CfnOutput(this, 'Url', { value: url.url });
+    let distribution: cloudfront.Distribution | undefined;
+    if (props.domainName && props.certificateArn && originSecret) {
+      distribution = new cloudfront.Distribution(this, 'Cdn', {
+        comment: `authorship-registry ${props.domainName}`,
+        domainNames: [props.domainName],
+        certificate: acm.Certificate.fromCertificateArn(this, 'Cert', props.certificateArn),
+        minimumProtocolVersion: cloudfront.SecurityPolicyProtocol.TLS_V1_2_2021,
+        httpVersion: cloudfront.HttpVersion.HTTP2_AND_3,
+        priceClass: cloudfront.PriceClass.PRICE_CLASS_ALL, // users are in Hong Kong
+        defaultBehavior: {
+          origin: new origins.FunctionUrlOrigin(url, { customHeaders: { 'x-origin-verify': originSecret } }),
+          allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+          cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+          originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        },
+      });
+    }
+
+    new cdk.CfnOutput(this, 'Url', { value: publicUrl ?? url.url });
+    new cdk.CfnOutput(this, 'FunctionUrl', { value: url.url });
+    if (distribution) new cdk.CfnOutput(this, 'CdnDomain', { value: distribution.distributionDomainName, description: `CNAME target for ${props.domainName}` });
     new cdk.CfnOutput(this, 'DsqlEndpoint', { value: dsqlEndpoint });
     new cdk.CfnOutput(this, 'DsqlClusterArn', { value: cluster.attrResourceArn });
     new cdk.CfnOutput(this, 'Sender', { value: `${props.mailDriver}:${props.senderEmail}` });

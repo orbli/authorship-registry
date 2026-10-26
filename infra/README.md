@@ -69,9 +69,12 @@ always-free tiers that cover a registry of this size. Region is `us-east-1`;
 if the hosting institution needs data residency, DSQL also runs in Hong Kong
 (`ap-east-1`, opt-in region).
 
-**Account note:** an AWS account on the post-2025 *free plan* cannot create
-Lambda, DSQL, SES or CloudFormation resources (an AWS-managed SCP denies
-them). Upgrade to the paid plan first; the free credits carry over.
+**Account note:** if every Lambda/DSQL/CloudFormation call fails with `explicit deny in a
+service control policy: arn:aws:organizations::<mgmt-account>:policy/...`, the account is a
+member of an AWS Organization whose SCP blocks those services. The management account ID is
+in that ARN (`aws organizations describe-organization` shows its email). Only the management
+account can detach the SCP or move the account out of the restricted OU; the account's own
+plan (free vs paid, `aws freetier get-account-plan-state`) has nothing to do with it.
 
 ## Deploy: Kubernetes demo (`deploy/k8s/`)
 
