@@ -65,7 +65,7 @@ SES production access in the console (new accounts are sandboxed and can only
 mail verified addresses). The stack outputs the public URL.
 
 Idle cost is zero: DSQL and Lambda both bill nothing when unused and both have
-always-free tiers that cover a registry of this size. Region is `us-east-1`;
+always-free tiers that cover a registry of this size. Region is `eu-north-1` (this organization's home region; its SCP denies regional services elsewhere);
 if the hosting institution needs data residency, DSQL also runs in Hong Kong
 (`ap-east-1`, opt-in region).
 
