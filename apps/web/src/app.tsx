@@ -7,7 +7,7 @@ import type { Mailer } from './mail.js';
 import { ROLES, SESSION_COOKIE, consumeToken, createSession, destroySession, issueToken, loadUser, requireRole, type AuthEnv, type Role, type User } from './auth.js';
 import { looksLikeDoi, nameKey, nameScore, normalizeDoi } from './names.js';
 import { page } from './views/layout.js';
-import { AdminUsersPage, AuditPage, HomePage, LoginPage, MessagePage, RecordPage, ReviewDetailPage, ReviewListPage, SearchPage, type ReportFormValues, type ReportRow, type SearchHit, type AuditRow } from './views/pages.js';
+import { AdminUsersPage, AuditPage, IncidentsPage, LoginPage, MessagePage, RecordPage, ReportPage, ReviewDetailPage, ReviewListPage, type ReportFormValues, type ReportRow, type SearchHit, type AuditRow } from './views/pages.js';
 
 export interface Deps {
   db: Db;
@@ -40,9 +40,60 @@ export function createApp({ db, mailer, cfg }: Deps) {
     return c.text('ok');
   });
 
+  // ---------- public: incidents (accepted records, reporter stripped) ----------
+
+  const REPORT_COLS = `id, status, reporter_name, reporter_email, reporter_affiliation, subject_name, subject_name_key, subject_affiliation, subject_email, paper_title, paper_doi, paper_venue, description, summary, decision_note, decided_by, created_at, verified_at, decided_at`;
+
+
+  interface AcceptedRow { id: string; subject_name: string; subject_name_key: string; subject_affiliation: string | null; paper_title: string; paper_doi: string | null; paper_venue: string | null; summary: string | null; decided_at: Date | null }
+  const ACCEPTED_COLS = `id, subject_name, subject_name_key, subject_affiliation, paper_title, paper_doi, paper_venue, summary, decided_at`;
+
+  const latest = async (): Promise<SearchHit[]> =>
+    (await db.query<AcceptedRow>(`SELECT ${ACCEPTED_COLS} FROM reports WHERE status = 'accepted' ORDER BY decided_at DESC LIMIT 50`)).map((r) => ({ ...r, score: 1 }));
+
+  async function search(q: string): Promise<SearchHit[]> {
+    if (looksLikeDoi(q)) {
+      const rows = await db.query<AcceptedRow>(`SELECT ${ACCEPTED_COLS} FROM reports WHERE status = 'accepted' AND paper_doi = $1`, [normalizeDoi(q)]);
+      return rows.map((r) => ({ ...r, score: 1 }));
+    }
+    const rows = await db.query<AcceptedRow>(`SELECT ${ACCEPTED_COLS} FROM reports WHERE status = 'accepted' LIMIT 5000`);
+    const ql = q.toLowerCase();
+    return rows
+      .map((r) => {
+        const byName = nameScore(q, r.subject_name_key);
+        const byTitle = ql.length >= 4 && r.paper_title.toLowerCase().includes(ql) ? 0.8 : 0;
+        return { ...r, score: Math.max(byName, byTitle) };
+      })
+      .filter((h) => h.score >= 0.35)
+      .sort((a, b) => b.score - a.score || (b.decided_at?.valueOf() ?? 0) - (a.decided_at?.valueOf() ?? 0))
+      .slice(0, 50);
+  }
+
+  app.get('/', async (c) => {
+    const q = (c.req.query('q') ?? '').trim();
+    const hits = q ? await search(q) : await latest();
+    if (q && c.var.user) await audit({ actor: c.var.user, action: 'search', detail: `${q} → ${hits.length}` });
+    return c.html(page(<IncidentsPage user={c.var.user} q={q} hits={hits} />));
+  });
+
+  // Old editor-only search URL.
+  app.get('/search', (c) => {
+    const q = (c.req.query('q') ?? '').trim();
+    return c.redirect(q ? `/?q=${encodeURIComponent(q)}` : '/');
+  });
+
+  app.get('/record/:id', async (c) => {
+    const r = await one<ReportRow>(db, `SELECT ${REPORT_COLS} FROM reports WHERE id = $1 AND status = 'accepted'`, [c.req.param('id')]);
+    if (!r) return c.notFound();
+    const key = (r as unknown as { subject_name_key: string }).subject_name_key;
+    const related = await one<{ n: string | number }>(db, `SELECT COUNT(*) AS n FROM reports WHERE status = 'accepted' AND subject_name_key = $1 AND id <> $2`, [key, r.id]);
+    if (c.var.user) await audit({ actor: c.var.user, action: 'record_view', reportId: r.id });
+    return c.html(page(<RecordPage user={c.var.user} report={r} related={Number(related?.n ?? 0)} />));
+  });
+
   // ---------- public: reporting ----------
 
-  app.get('/', (c) => c.html(page(<HomePage user={c.var.user} />)));
+  app.get('/report', (c) => c.html(page(<ReportPage user={c.var.user} />)));
 
   app.post('/report', async (c) => {
     const f = await c.req.parseBody();
@@ -52,7 +103,7 @@ export function createApp({ db, mailer, cfg }: Deps) {
       v[k] = typeof raw === 'string' ? raw.trim() : '';
     }
     const missing = (['reporter_name', 'reporter_email', 'reporter_affiliation', 'subject_name', 'paper_title', 'description'] as const).filter((k) => !v[k]);
-    const fail = (error: string) => c.html(page(<HomePage user={c.var.user} values={v} error={error} />), 400);
+    const fail = (error: string) => c.html(page(<ReportPage user={c.var.user} values={v} error={error} />), 400);
     if (missing.length) return fail(`Please fill in: ${missing.join(', ').replace(/_/g, ' ')}.`);
     if (!EMAIL_RE.test(v.reporter_email!)) return fail('That email address does not look valid.');
     const email = v.reporter_email!.toLowerCase();
@@ -109,7 +160,7 @@ export function createApp({ db, mailer, cfg }: Deps) {
     setCookie(c, SESSION_COOKIE, sid, { httpOnly: true, secure: secureCookie(c), sameSite: 'Lax', path: '/', maxAge: cfg.sessionTtlHours * 3600 });
     await audit({ actor: user, action: 'login' });
     const next = c.req.query('next');
-    const home = user.role === 'editor' ? '/search' : '/review';
+    const home = user.role === 'editor' ? '/' : '/review';
     return c.redirect(next && next.startsWith('/') && !next.startsWith('//') ? next : home);
   });
 
@@ -121,8 +172,6 @@ export function createApp({ db, mailer, cfg }: Deps) {
   });
 
   // ---------- reviewers ----------
-
-  const REPORT_COLS = `id, status, reporter_name, reporter_email, reporter_affiliation, subject_name, subject_name_key, subject_affiliation, subject_email, paper_title, paper_doi, paper_venue, description, summary, decision_note, decided_by, created_at, verified_at, decided_at`;
 
   app.get('/review', requireRole('reviewer'), async (c) => {
     const status = ['submitted', 'accepted', 'rejected'].includes(c.req.query('status') ?? '') ? c.req.query('status')! : 'submitted';
@@ -151,46 +200,6 @@ export function createApp({ db, mailer, cfg }: Deps) {
     ]);
     await audit({ actor: c.var.user, action: `decision_${status}`, reportId: r.id, detail: r.status !== 'submitted' ? `was ${r.status}` : undefined });
     return c.redirect(`/review/${r.id}`);
-  });
-
-  // ---------- editors ----------
-
-  interface AcceptedRow { id: string; subject_name: string; subject_name_key: string; subject_affiliation: string | null; paper_title: string; paper_doi: string | null; paper_venue: string | null; decided_at: Date | null }
-
-  async function search(q: string): Promise<SearchHit[]> {
-    const cols = `id, subject_name, subject_name_key, subject_affiliation, paper_title, paper_doi, paper_venue, decided_at`;
-    if (looksLikeDoi(q)) {
-      const rows = await db.query<AcceptedRow>(`SELECT ${cols} FROM reports WHERE status = 'accepted' AND paper_doi = $1`, [normalizeDoi(q)]);
-      return rows.map((r) => ({ ...r, score: 1 }));
-    }
-    const rows = await db.query<AcceptedRow>(`SELECT ${cols} FROM reports WHERE status = 'accepted' LIMIT 5000`);
-    const ql = q.toLowerCase();
-    return rows
-      .map((r) => {
-        const byName = nameScore(q, r.subject_name_key);
-        const byTitle = ql.length >= 4 && r.paper_title.toLowerCase().includes(ql) ? 0.8 : 0;
-        return { ...r, score: Math.max(byName, byTitle) };
-      })
-      .filter((h) => h.score >= 0.35)
-      .sort((a, b) => b.score - a.score || (b.decided_at?.valueOf() ?? 0) - (a.decided_at?.valueOf() ?? 0))
-      .slice(0, 50);
-  }
-
-  app.get('/search', requireRole('editor'), async (c) => {
-    const q = (c.req.query('q') ?? '').trim();
-    if (!q) return c.html(page(<SearchPage user={c.var.user!} q="" />));
-    const hits = await search(q);
-    await audit({ actor: c.var.user, action: 'search', detail: `${q} → ${hits.length}` });
-    return c.html(page(<SearchPage user={c.var.user!} q={q} hits={hits} />));
-  });
-
-  app.get('/record/:id', requireRole('editor'), async (c) => {
-    const r = await one<ReportRow>(db, `SELECT ${REPORT_COLS} FROM reports WHERE id = $1 AND status = 'accepted'`, [c.req.param('id')]);
-    if (!r) return c.notFound();
-    const key = (r as unknown as { subject_name_key: string }).subject_name_key;
-    const related = await one<{ n: string | number }>(db, `SELECT COUNT(*) AS n FROM reports WHERE status = 'accepted' AND subject_name_key = $1 AND id <> $2`, [key, r.id]);
-    await audit({ actor: c.var.user, action: 'record_view', reportId: r.id });
-    return c.html(page(<RecordPage user={c.var.user!} report={r} related={Number(related?.n ?? 0)} />));
   });
 
   // ---------- admin ----------

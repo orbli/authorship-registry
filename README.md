@@ -14,9 +14,14 @@ accepted records before a publication decision.
   (tests, `npm run dev`). All SQL stays within the DSQL-compatible subset: UUID
   keys, no foreign keys, no triggers, no extensions. Fuzzy name matching happens
   in the app.
+- `/` lists accepted records and searches them (fuzzy author name, DOI, title);
+  `/report` is the intake form. Accepted records show the subject, paper and the
+  review team's summary; the reporter is never shown anywhere public.
 - Roles: reporter (submits, sees nothing after), reviewer (sees full record
-  incl. reporter identity), editor (sees accepted records, reporter stripped).
-- Every editor read is audit-logged.
+  incl. reporter identity), editor (staff account; searches are audit-logged
+  when signed in). The listing is public in this build: to restrict it to
+  editors, add `requireRole('editor')` to the `/` and `/record/:id` routes.
+- Every signed-in read is audit-logged.
 
 ## Layout
 

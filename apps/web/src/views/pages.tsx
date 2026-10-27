@@ -26,7 +26,7 @@ export type ReportFormValues = Partial<Record<'reporter_name' | 'reporter_email'
 
 const Err: FC<{ error?: string }> = ({ error }) => (error ? <div class="notice err">{error}</div> : null);
 
-export const HomePage: FC<{ user?: User; values?: ReportFormValues; error?: string }> = ({ user, values = {}, error }) => (
+export const ReportPage: FC<{ user?: User; values?: ReportFormValues; error?: string }> = ({ user, values = {}, error }) => (
   <Layout title="Report" user={user}>
     <h1>Report undisclosed AI-generated authorship</h1>
     <p class="lead">
@@ -161,42 +161,54 @@ export interface SearchHit {
   paper_title: string;
   paper_doi: string | null;
   paper_venue: string | null;
+  summary: string | null;
   decided_at: Date | null;
   score: number;
 }
 
-export const SearchPage: FC<{ user: User; q: string; hits?: SearchHit[] }> = ({ user, q, hits }) => (
-  <Layout title="Search" user={user}>
-    <h1>Search accepted reports</h1>
-    <p class="lead">Search by author name, DOI or paper title. Name matching is fuzzy and ignores word order, so "Wong Ka Ming" also finds "K. M. Wong". Every search is logged.</p>
-    <form method="get" action="/search" class="row">
-      <label><span>Query</span><input name="q" value={q} autofocus required /></label>
+const snippet = (s: string | null, n = 180) => (s ? (s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s) : '');
+
+export const IncidentsPage: FC<{ user?: User; q: string; hits: SearchHit[] }> = ({ user, q, hits }) => (
+  <Layout title={q ? `Search: ${q}` : 'Reported incidents'} user={user}>
+    <h1>Reported incidents</h1>
+    <p class="lead">
+      Accepted reports of undisclosed AI-generated authorship, vetted by the review team. Search by author name, DOI or paper title.
+      Name matching is fuzzy and ignores word order, so "Wong Ka Ming" also finds "K. M. Wong". Reporter identities are never shown.
+    </p>
+    <form method="get" action="/" class="row">
+      <label><span>Author name, DOI or paper title</span><input name="q" value={q} autofocus placeholder="e.g. K. M. Wong, 10.1234/abcd.5678" /></label>
       <button>Search</button>
+      {q ? <a href="/" style="align-self:center">Clear</a> : null}
     </form>
-    {hits ? (
-      hits.length === 0 ? (
-        <div class="notice ok" style="margin-top:16px">No accepted reports match "{q}".</div>
-      ) : (
-        <table style="margin-top:16px">
-          <thead><tr><th>Author</th><th>Paper</th><th>Venue</th><th>Accepted</th><th>Match</th></tr></thead>
+    {q && hits.length === 0 ? (
+      <div class="notice ok" style="margin-top:16px">No accepted reports match "{q}".</div>
+    ) : null}
+    {!q && hits.length === 0 ? (
+      <div class="notice" style="margin-top:16px">No accepted reports yet.</div>
+    ) : null}
+    {hits.length > 0 ? (
+      <>
+        <h2>{q ? `${hits.length} match${hits.length === 1 ? '' : 'es'}` : `Latest ${hits.length}`}</h2>
+        <table>
+          <thead><tr><th>Author</th><th>Paper</th><th>Venue</th><th>Accepted</th>{q ? <th>Match</th> : null}</tr></thead>
           <tbody>
             {hits.map((h) => (
               <tr>
                 <td><a href={`/record/${h.id}`}>{h.subject_name}</a><div class="meta">{h.subject_affiliation ?? ''}</div></td>
-                <td>{h.paper_title}<div class="meta">{h.paper_doi ?? ''}</div></td>
+                <td>{h.paper_title}<div class="meta">{h.paper_doi ?? ''}</div><div class="meta">{snippet(h.summary)}</div></td>
                 <td>{h.paper_venue ?? ''}</td>
                 <td>{fmtDate(h.decided_at)}</td>
-                <td>{Math.round(h.score * 100)}%</td>
+                {q ? <td>{Math.round(h.score * 100)}%</td> : null}
               </tr>
             ))}
           </tbody>
         </table>
-      )
+      </>
     ) : null}
   </Layout>
 );
 
-export const RecordPage: FC<{ user: User; report: ReportRow; related: number }> = ({ user, report: r, related }) => (
+export const RecordPage: FC<{ user?: User; report: ReportRow; related: number }> = ({ user, report: r, related }) => (
   <Layout title="Record" user={user}>
     <h1>{r.subject_name}</h1>
     <p class="meta">Accepted {fmtDate(r.decided_at)}{related > 0 ? ` · ${related} other accepted report${related > 1 ? 's' : ''} about an author with this name` : ''}</p>
@@ -212,7 +224,8 @@ export const RecordPage: FC<{ user: User; report: ReportRow; related: number }> 
       <h3>Summary from the review team</h3>
       <dd>{r.summary}</dd>
     </div>
-    <p class="meta">This view has been recorded in the audit log.</p>
+    {user ? <p class="meta">This view has been recorded in the audit log.</p> : null}
+    <p class="meta"><a href="/">Back to incidents</a> · <a href="/report">File a report</a></p>
   </Layout>
 );
 

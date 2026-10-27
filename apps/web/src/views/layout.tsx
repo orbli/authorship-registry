@@ -35,9 +35,9 @@ export const Layout: FC<PropsWithChildren<{ title: string; user?: User }>> = ({ 
         <div class="in">
           <a class="brand" href="/">Authorship Registry</a>
           <nav>
-            <a href="/">Report</a>
+            <a href="/">Incidents</a>
+            <a href="/report">Report</a>
             {user && (user.role === 'reviewer' || user.role === 'admin') ? <a href="/review">Review</a> : null}
-            {user && (user.role === 'editor' || user.role === 'admin') ? <a href="/search">Search</a> : null}
             {user?.role === 'admin' ? <a href="/admin/users">Users</a> : null}
             {user?.role === 'admin' ? <a href="/admin/audit">Audit</a> : null}
           </nav>

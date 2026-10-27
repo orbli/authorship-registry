@@ -44,11 +44,14 @@ describe('end to end', () => {
   let reviewer: string;
   let editor: string;
 
-  it('serves the public form and health check', async () => {
+  it('serves the incident list, the report form and the health check', async () => {
     expect((await get('/healthz')).status).toBe(200);
     const home = await get('/');
     expect(home.status).toBe(200);
-    expect(await home.text()).toContain('Report undisclosed AI-generated authorship');
+    expect(await home.text()).toContain('No accepted reports yet');
+    const form = await get('/report');
+    expect(form.status).toBe(200);
+    expect(await form.text()).toContain('Report undisclosed AI-generated authorship');
   });
 
   it('rejects an incomplete report', async () => {
@@ -98,18 +101,22 @@ describe('end to end', () => {
     expect(mailer.sent!.length).toBe(before);
   });
 
-  it('editor cannot see the review queue; reviewer cannot search', async () => {
+  it('editor cannot see the review queue; the old /search URL redirects to /', async () => {
     reviewer = await signIn('rev@test.local');
     editor = await signIn('ed@test.local');
     expect((await get('/review', editor)).status).toBe(403);
-    expect((await get('/search?q=wong', reviewer)).status).toBe(403);
     expect((await get('/review')).status).toBe(302); // anonymous → login
+    const old = await get('/search?q=wong');
+    expect(old.status).toBe(302);
+    expect(old.headers.get('location')).toBe('/?q=wong');
   });
 
-  it('editor finds nothing before the report is accepted', async () => {
-    const r = await get('/search?q=Wong%20Ka%20Ming', editor);
+  it('nothing is listed or found before the report is accepted', async () => {
+    const r = await get('/?q=Wong%20Ka%20Ming');
     expect(r.status).toBe(200);
     expect(await r.text()).toContain('No accepted reports match');
+    expect(await (await get('/')).text()).toContain('No accepted reports yet');
+    expect((await get(`/record/${reportId}`)).status).toBe(404);
   });
 
   it('reviewer sees the reporter and must give a summary to accept', async () => {
@@ -120,17 +127,24 @@ describe('end to end', () => {
     expect((await post(`/review/${reportId}/decision`, { status: 'accepted', summary: 'Confirmed by two independent sources.', decision_note: 'Reporter is credible.' }, reviewer)).status).toBe(302);
   });
 
-  it('editor finds the accepted report by fuzzy name, DOI and title, never the reporter', async () => {
+  it('the accepted report is listed and found by fuzzy name, DOI and title, never the reporter', async () => {
+    const list = await (await get('/')).text();
+    expect(list).toContain('Wong, Ka-Ming');
+    expect(list).toContain('Confirmed by two independent sources.');
+    expect(list).not.toContain('alice');
     for (const q of ['K. M. Wong', 'wong ka ming', '10.1000/SPONT.1', 'spontaneous generation']) {
-      const r = await get(`/search?q=${encodeURIComponent(q)}`, editor);
+      const r = await get(`/?q=${encodeURIComponent(q)}`, editor);
       const body = await r.text();
       expect(body, q).toContain('Wong, Ka-Ming');
       expect(body, q).not.toContain('alice');
     }
-    const miss = await get('/search?q=Chan%20Tai%20Man', editor);
+    const miss = await get('/?q=Chan%20Tai%20Man');
     expect(await miss.text()).toContain('No accepted reports match');
 
-    const rec = await get(`/record/${reportId}`, editor);
+    const anon = await (await get(`/record/${reportId}`)).text();
+    expect(anon).toContain('Confirmed by two independent sources.');
+    expect(anon).not.toContain('audit log');
+    const rec = await get(`/record/${reportId}`, editor); // signed-in reads are audit-logged
     const body = await rec.text();
     expect(body).toContain('Confirmed by two independent sources.');
     expect(body).not.toContain('Alice');
