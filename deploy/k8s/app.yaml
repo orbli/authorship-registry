@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
         - name: registry
-          image: ghcr.io/orbli/authorship-registry:main
+          image: ghcr.io/orbli/authorship-registry/web:main
           ports: [{ containerPort: 3000 }]
           env:
             - { name: DB_DIALECT, value: postgres }

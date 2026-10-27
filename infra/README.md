@@ -24,8 +24,8 @@ with a magic link emailed to a pre-registered address; there are no passwords.
 - All SQL stays inside the Aurora DSQL subset so the same code runs on DSQL,
   vanilla Postgres and embedded PGlite: UUID keys generated in the app, no
   foreign keys, no triggers, no extensions, one statement per query, indexes
-  created `ASYNC` on DSQL. Fuzzy name matching happens in the app (`src/names.ts`).
-- Entry points: `src/server.ts` (plain HTTP server for Kubernetes, local dev and
+  created `ASYNC` on DSQL. Fuzzy name matching happens in the app (`apps/web/src/names.ts`).
+- Entry points (in `apps/web`): `src/server.ts` (plain HTTP server for Kubernetes, local dev and
   Lambda Web Functions), `src/lambda.ts` (Lambda Function URL handler).
 
 ## Run locally
@@ -34,7 +34,7 @@ with a magic link emailed to a pre-registered address; there are no passwords.
 npm install
 npm run dev            # embedded Postgres, emails printed to the terminal
 ADMIN_EMAIL=you@example.org npm run dev   # seeds you as admin so you can sign in
-npm test               # 19 tests: unit + full end-to-end flow
+npm test               # 24 tests: unit + full end-to-end flow
 ```
 
 ## Configuration (environment)
@@ -79,7 +79,7 @@ plan (free vs paid, `aws freetier get-account-plan-state`) has nothing to do wit
 ## Deploy: Kubernetes demo (`deploy/k8s/`)
 
 For a homelab or any cluster. Fake data only. Image is built multi-arch
-(amd64 + arm64) by GitHub Actions to `ghcr.io/orbli/authorship-registry`.
+(amd64 + arm64) by GitHub Actions to `ghcr.io/orbli/authorship-registry/web`.
 
 ```
 kubectl apply -k deploy/k8s     # after creating the two secrets named in kustomization.yaml

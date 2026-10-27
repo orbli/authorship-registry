@@ -74,7 +74,7 @@ export class RegistryStack extends cdk.Stack {
 
     // --- Web app: one Node.js function, zip-bundled with esbuild (no Docker), arm64 for price.
     const fn = new NodejsFunction(this, 'Web', {
-      entry: path.join(appRoot, 'src', 'lambda.ts'),
+      entry: path.join(appRoot, 'apps', 'web', 'src', 'lambda.ts'),
       projectRoot: appRoot,
       depsLockFilePath: path.join(appRoot, 'package-lock.json'),
       runtime: lambda.Runtime.NODEJS_22_X,

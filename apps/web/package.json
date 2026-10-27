@@ -1,0 +1,26 @@
+{
+  "name": "@authorship-registry/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Web app + Lambda handler: report intake, review, editor search.",
+  "scripts": {
+    "dev": "DB_DIALECT=pglite MAIL_DRIVER=console tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "esbuild src/server.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/server.js --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\" --external:@electric-sql/pglite",
+    "migrate": "tsx src/cli/migrate.ts",
+    "mail-test": "tsx src/cli/mail-test.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-sesv2": "^3.1156.0",
+    "@aws-sdk/client-ssm": "^3.1156.0",
+    "@aws-sdk/dsql-signer": "^3.1156.0",
+    "@hono/node-server": "^2.1.5",
+    "hono": "^4.13.14",
+    "nodemailer": "^10.2.1",
+    "pg": "^8.23.1"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
