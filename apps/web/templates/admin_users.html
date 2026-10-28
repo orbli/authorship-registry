@@ -1,0 +1,39 @@
+{% extends "layout.html" %}
+{% block body %}
+<h1>Staff accounts</h1>
+{% include "partials/error.html" %}
+<table>
+  <thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Status</th><th></th></tr></thead>
+  <tbody>
+    {% for u in users %}
+    <tr>
+      <td>{{ u.email }}</td>
+      <td>{{ u.name }}</td>
+      <td>{{ u.role.as_str() }}</td>
+      <td>{% if u.disabled %}disabled{% else %}active{% endif %}</td>
+      <td>
+        {% if u.id != me.id %}
+        <form method="post" action="/admin/users/{{ u.id }}/{% if u.disabled %}enable{% else %}disable{% endif %}">
+          <button class="secondary inline">{% if u.disabled %}Enable{% else %}Disable{% endif %}</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Add staff</h2>
+<form method="post" action="/admin/users">
+  <label><span class="req">Email</span><input name="email" type="email" required></label>
+  <label><span class="req">Name</span><input name="name" required maxlength="200"></label>
+  <label><span class="req">Role</span>
+    <select name="role">
+      <option value="editor">editor: search accepted records</option>
+      <option value="reviewer">reviewer: vet reports, see reporters</option>
+      <option value="admin">admin: everything</option>
+    </select>
+  </label>
+  <button>Add</button>
+</form>
+{% endblock %}

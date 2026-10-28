@@ -13,9 +13,14 @@ async fn end_to_end() {
 
     // serves the incident list, the report form and the health check
     assert_eq!(app.get("/healthz", None).await.status, StatusCode::OK);
+    let css = app.get("/static/app.css", None).await;
+    assert_eq!(css.status, StatusCode::OK);
+    assert!(css.headers.get("content-type").is_some_and(|v| v.to_str().unwrap().starts_with("text/css")));
+    assert!(css.body.contains("--accent"));
     let home = app.get("/", None).await;
     assert_eq!(home.status, StatusCode::OK);
     assert!(home.body.contains("No accepted reports yet"));
+    assert!(home.body.contains("/static/app.css?v="), "layout links the stylesheet");
     let form = app.get("/report", None).await;
     assert_eq!(form.status, StatusCode::OK);
     assert!(form.body.contains("Report undisclosed AI-generated authorship"));

@@ -1,0 +1,34 @@
+{% extends "layout.html" %}
+{% block body %}
+<h1>Reported incidents</h1>
+<p class="lead">Accepted reports of undisclosed AI-generated authorship, vetted by the review team. Search by author name, DOI or paper title. Name matching is fuzzy and ignores word order, so "Wong Ka Ming" also finds "K. M. Wong". Reporter identities are never shown.</p>
+
+<form method="get" action="/" class="row">
+  <label><span>Author name, DOI or paper title</span><input name="q" value="{{ q }}" autofocus placeholder="e.g. K. M. Wong, 10.1234/abcd.5678"></label>
+  <button>Search</button>
+  {% if !q.is_empty() %}<a href="/" style="align-self:center">Clear</a>{% endif %}
+</form>
+
+{% if !q.is_empty() && hits.is_empty() %}<div class="notice ok" style="margin-top:16px">No accepted reports match "{{ q }}".</div>{% endif %}
+{% if q.is_empty() && hits.is_empty() %}<div class="notice" style="margin-top:16px">No accepted reports yet.</div>{% endif %}
+
+{% if !hits.is_empty() %}
+<h2>{{ heading }}</h2>
+<table>
+  <thead>
+    <tr><th>Author</th><th>Paper</th><th>Venue</th><th>Accepted</th>{% if !q.is_empty() %}<th>Match</th>{% endif %}</tr>
+  </thead>
+  <tbody>
+    {% for h in hits %}
+    <tr>
+      <td><a href="/record/{{ h.id }}">{{ h.subject_name }}</a><div class="meta">{{ h.subject_affiliation|or_empty }}</div></td>
+      <td>{{ h.paper_title }}<div class="meta">{{ h.paper_doi|or_empty }}</div><div class="meta">{{ h.summary_snippet() }}</div></td>
+      <td>{{ h.paper_venue|or_empty }}</td>
+      <td>{{ h.decided_at|date }}</td>
+      {% if !q.is_empty() %}<td>{{ h.percent() }}%</td>{% endif %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

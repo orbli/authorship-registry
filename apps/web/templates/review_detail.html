@@ -1,0 +1,59 @@
+{% extends "layout.html" %}
+{% import "macros.html" as m %}
+{% block body %}
+<h1>{{ r.subject_name }} {% call m::badge(r.status) %}{% endcall %}</h1>
+{% include "partials/error.html" %}
+
+<div class="card">
+  <h3>Paper</h3>
+  <dl>
+    <dt>Title</dt><dd>{{ r.paper_title }}</dd>
+    <dt>DOI</dt><dd>{{ r.paper_doi|or_dash }}</dd>
+    <dt>Venue</dt><dd>{{ r.paper_venue|or_dash }}</dd>
+    <dt>Author affiliation</dt><dd>{{ r.subject_affiliation|or_dash }}</dd>
+    <dt>Author email</dt><dd>{{ r.subject_email|or_dash }}</dd>
+  </dl>
+</div>
+
+<div class="card">
+  <h3>Reporter (confidential)</h3>
+  <dl>
+    <dt>Name</dt><dd>{{ r.reporter_name }}</dd>
+    <dt>Email</dt><dd>{{ r.reporter_email }}</dd>
+    <dt>Affiliation</dt><dd>{{ r.reporter_affiliation }}</dd>
+    <dt>Email verified</dt><dd>{% if r.verified_at.is_some() %}{{ r.verified_at|date }}{% else %}not yet{% endif %}</dd>
+  </dl>
+</div>
+
+<div class="card">
+  <h3>Report</h3>
+  <dd>{{ r.description }}</dd>
+</div>
+
+{% if r.decided() %}
+<div class="card">
+  <h3>Decision · {{ r.decided_at|date }}</h3>
+  <dl>
+    <dt>Editor-facing summary</dt><dd>{{ r.summary|or_dash }}</dd>
+    <dt>Internal note</dt><dd>{{ r.decision_note|or_dash }}</dd>
+  </dl>
+</div>
+{% endif %}
+
+<h2>{% if r.decided() %}Revise decision{% else %}Decide{% endif %}</h2>
+<form method="post" action="/review/{{ r.id }}/decision">
+  <label><span class="req">Decision</span>
+    <select name="status">
+      <option value="accepted"{% if r.status == "accepted" %} selected{% endif %}>Accept: visible to editors</option>
+      <option value="rejected"{% if r.status == "rejected" %} selected{% endif %}>Reject: never shown</option>
+    </select>
+  </label>
+  <label><span>Summary shown to editors (required when accepting; never include the reporter)</span>
+    <textarea name="summary" maxlength="4000">{{ r.summary|or_empty }}</textarea>
+  </label>
+  <label><span>Internal note (review team only)</span>
+    <textarea name="decision_note" maxlength="4000">{{ r.decision_note|or_empty }}</textarea>
+  </label>
+  <button>Save decision</button>
+</form>
+{% endblock %}

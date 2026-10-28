@@ -1,0 +1,22 @@
+{% extends "layout.html" %}
+{% block body %}
+<h1>{{ r.subject_name }}</h1>
+<p class="meta">Accepted {{ r.decided_at|date }}{% if related > 0 %} · {{ related }} other accepted report{% if related > 1 %}s{% endif %} about an author with this name{% endif %}</p>
+
+<div class="card">
+  <dl>
+    <dt>Affiliation</dt><dd>{{ r.subject_affiliation|or_dash }}</dd>
+    <dt>Paper</dt><dd>{{ r.paper_title }}</dd>
+    <dt>DOI</dt><dd>{{ r.paper_doi|or_dash }}</dd>
+    <dt>Venue</dt><dd>{{ r.paper_venue|or_dash }}</dd>
+  </dl>
+</div>
+
+<div class="card">
+  <h3>Summary from the review team</h3>
+  <dd>{{ r.summary|or_empty }}</dd>
+</div>
+
+{% if page.user.is_some() %}<p class="meta">This view has been recorded in the audit log.</p>{% endif %}
+<p class="meta"><a href="/">Back to incidents</a> · <a href="/report">File a report</a></p>
+{% endblock %}

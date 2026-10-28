@@ -10,6 +10,12 @@ accepted records before a publication decision.
   may hold several binaries. Shared code goes in further workspace crates.
 - `apps/web`: the whole service today. axum HTTP server (Kubernetes, local dev)
   and a Lambda Function URL handler, same code, two binaries.
+- Pages are HTML files in `apps/web/templates/` (Askama, Jinja syntax: `{{ x }}`,
+  `{% if %}`, `{% for %}`, `{% extends "layout.html" %}`), compiled into the
+  binary and type-checked at build time, so a typo in a template fails
+  `cargo build`. The stylesheet is `apps/web/static/app.css`, served at
+  `/static/app.css` with a content hash in the URL. Rust only supplies data
+  (`src/views/`); there is no JavaScript.
 - Database: Amazon Aurora DSQL (prod), vanilla Postgres (homelab demo and tests,
   embedded during `cargo test`). All SQL stays within the DSQL-compatible
   subset: UUID keys, no foreign keys, no triggers, no extensions. Fuzzy name
@@ -20,7 +26,7 @@ accepted records before a publication decision.
 - Roles: reporter (submits, sees nothing after), reviewer (sees full record
   incl. reporter identity), editor (staff account; searches are audit-logged
   when signed in). The listing is public in this build: to restrict it to
-  editors, add `requireRole('editor')` to the `/` and `/record/:id` routes.
+  editors, add a `require(&user, &[Role::Editor], ..)` check to the `/` and `/record/{id}` handlers.
 - Every signed-in read is audit-logged.
 
 ## Layout
@@ -28,6 +34,8 @@ accepted records before a publication decision.
 ```
 Cargo.toml           workspace: members = apps/*
 apps/web/            crate authorship-registry-web: src/ (lib + bins web, lambda), tests/
+apps/web/templates/  HTML templates (Askama); layout.html is the shared shell
+apps/web/static/     stylesheet, embedded at build time
 Dockerfile           builds any app: docker build --build-arg APP=web .
 .github/workflows/   fmt + clippy + tests, then one image per app, built natively
                      on amd64 and arm64 runners, to ghcr.io/orbli/authorship-registry/<app>

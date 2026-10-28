@@ -1,0 +1,25 @@
+{% extends "layout.html" %}
+{% block body %}
+<h1>Report undisclosed AI-generated authorship</h1>
+<p class="lead">Use this form if you have first-hand knowledge that a manuscript or published paper was substantially produced by AI without disclosure. Reports are reviewed by a human team before anything becomes visible to journal editors. You must give your real name and a working email address; we will send you a confirmation link and nothing is filed until you click it. Your identity is never shown to editors.</p>
+{% include "partials/error.html" %}
+<form method="post" action="/report">
+  <h2>About you</h2>
+  <label><span class="req">Your full name</span><input name="reporter_name" required maxlength="200" value="{{ form.reporter_name }}"></label>
+  <label><span class="req">Your email</span><input name="reporter_email" type="email" required maxlength="200" value="{{ form.reporter_email }}"></label>
+  <label><span class="req">Your affiliation</span><input name="reporter_affiliation" required maxlength="200" value="{{ form.reporter_affiliation }}"></label>
+
+  <h2>About the author being reported</h2>
+  <label><span class="req">Author name</span><input name="subject_name" required maxlength="200" value="{{ form.subject_name }}"></label>
+  <label><span>Author affiliation</span><input name="subject_affiliation" maxlength="200" value="{{ form.subject_affiliation }}"></label>
+  <label><span>Author email, if known</span><input name="subject_email" maxlength="200" value="{{ form.subject_email }}"></label>
+
+  <h2>About the paper</h2>
+  <label><span class="req">Paper title</span><input name="paper_title" required maxlength="500" value="{{ form.paper_title }}"></label>
+  <label><span>DOI or preprint identifier</span><input name="paper_doi" maxlength="200" placeholder="10.1234/abcd.5678" value="{{ form.paper_doi }}"></label>
+  <label><span>Journal, conference or venue</span><input name="paper_venue" maxlength="200" value="{{ form.paper_venue }}"></label>
+  <label><span class="req">What you observed, and how you know</span><textarea name="description" required maxlength="8000">{{ form.description }}</textarea></label>
+
+  <button>Send confirmation email</button>
+</form>
+{% endblock %}

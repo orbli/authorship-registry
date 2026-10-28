@@ -1,13 +1,15 @@
-//! Every page, as functions returning markup. Ported one to one from the JSX
-//! views so the HTML the tests and users see is unchanged.
+//! One struct per template. Each holds exactly the data its template renders;
+//! the constructor functions keep the handler call sites short.
 
+use askama::Template;
 use chrono::{DateTime, Utc};
-use maud::{Markup, html};
 use tokio_postgres::Row;
 use uuid::Uuid;
 
-use super::layout::{fmt_date, layout};
-use crate::auth::{Role, User};
+use super::{Page, filters, fmt_date};
+use crate::auth::User;
+
+// ---------- rows read from the database ----------
 
 #[derive(Clone, Debug)]
 pub struct ReportRow {
@@ -56,187 +58,15 @@ impl ReportRow {
             decided_at: r.get("decided_at"),
         }
     }
-}
 
-#[derive(Clone, Debug, Default)]
-pub struct ReportForm {
-    pub reporter_name: String,
-    pub reporter_email: String,
-    pub reporter_affiliation: String,
-    pub subject_name: String,
-    pub subject_affiliation: String,
-    pub subject_email: String,
-    pub paper_title: String,
-    pub paper_doi: String,
-    pub paper_venue: String,
-    pub description: String,
-}
+    pub fn decided(&self) -> bool {
+        self.status == "accepted" || self.status == "rejected"
+    }
 
-fn err_box(error: Option<&str>) -> Markup {
-    html! { @if let Some(e) = error { div class="notice err" { (e) } } }
-}
-
-fn dash(s: &Option<String>) -> &str {
-    s.as_deref().unwrap_or("—")
-}
-
-pub fn report_page(user: Option<&User>, v: &ReportForm, error: Option<&str>) -> Markup {
-    layout(
-        "Report",
-        user,
-        html! {
-            h1 { "Report undisclosed AI-generated authorship" }
-            p class="lead" {
-                "Use this form if you have first-hand knowledge that a manuscript or published paper was substantially produced by AI without disclosure. Reports are reviewed by a human team before anything becomes visible to journal editors. You must give your real name and a working email address; we will send you a confirmation link and nothing is filed until you click it. Your identity is never shown to editors."
-            }
-            (err_box(error))
-            form method="post" action="/report" {
-                h2 { "About you" }
-                label { span class="req" { "Your full name" } input name="reporter_name" required maxlength="200" value=(v.reporter_name); }
-                label { span class="req" { "Your email" } input name="reporter_email" type="email" required maxlength="200" value=(v.reporter_email); }
-                label { span class="req" { "Your affiliation" } input name="reporter_affiliation" required maxlength="200" value=(v.reporter_affiliation); }
-                h2 { "About the author being reported" }
-                label { span class="req" { "Author name" } input name="subject_name" required maxlength="200" value=(v.subject_name); }
-                label { span { "Author affiliation" } input name="subject_affiliation" maxlength="200" value=(v.subject_affiliation); }
-                label { span { "Author email, if known" } input name="subject_email" maxlength="200" value=(v.subject_email); }
-                h2 { "About the paper" }
-                label { span class="req" { "Paper title" } input name="paper_title" required maxlength="500" value=(v.paper_title); }
-                label { span { "DOI or preprint identifier" } input name="paper_doi" maxlength="200" placeholder="10.1234/abcd.5678" value=(v.paper_doi); }
-                label { span { "Journal, conference or venue" } input name="paper_venue" maxlength="200" value=(v.paper_venue); }
-                label { span class="req" { "What you observed, and how you know" } textarea name="description" required maxlength="8000" { (v.description) } }
-                button { "Send confirmation email" }
-            }
-        },
-    )
-}
-
-pub fn message_page(user: Option<&User>, title: &str, body: &str, kind: &str) -> Markup {
-    layout(
-        title,
-        user,
-        html! {
-            h1 { (title) }
-            div class=(format!("notice {kind}")) { (body) }
-        },
-    )
-}
-
-pub fn login_page(next: Option<&str>, sent: bool, google: bool, denied: Option<&str>) -> Markup {
-    let next = next.unwrap_or("");
-    layout(
-        "Staff sign in",
-        None,
-        html! {
-            h1 { "Staff sign in" }
-            p class="lead" { "For reviewers, editors and administrators. Your address must already be registered by an administrator." }
-            (err_box(denied))
-            @if sent {
-                div class="notice ok" { "If that address belongs to a registered reviewer or editor, a sign-in link is on its way. It expires shortly." }
-            } @else {
-                @if google {
-                    p {
-                        a href=(if next.is_empty() { "/auth/google".to_string() } else { format!("/auth/google?next={}", crate::google::urlencode(next)) }) class="button" { "Sign in with Google" }
-                        span class="meta" style="margin-left:10px" { "uses the Google account's email; it must match a staff account" }
-                    }
-                }
-                form method="post" action="/login" {
-                    input type="hidden" name="next" value=(next);
-                    label { span class="req" { "Email" } input name="email" type="email" required autofocus[!google]; }
-                    button class=(if google { "secondary" } else { "" }) { "Email me a sign-in link" }
-                }
-            }
-        },
-    )
-}
-
-fn status_badge(status: &str) -> Markup {
-    html! { span class=(format!("badge {status}")) { (status.replace('_', " ")) } }
-}
-
-pub fn review_list_page(user: &User, reports: &[ReportRow], status: &str) -> Markup {
-    layout(
-        "Review queue",
-        Some(user),
-        html! {
-            h1 { "Review queue" }
-            p class="lead" {
-                "Showing " strong { (status) } " reports. "
-                @for s in ["submitted", "accepted", "rejected"].iter().filter(|s| **s != status) {
-                    " · " a href=(format!("/review?status={s}")) { (s) }
-                }
-            }
-            @if reports.is_empty() { div class="notice" { "Nothing here." } }
-            @for r in reports {
-                div class="card" {
-                    h3 { a href=(format!("/review/{}", r.id)) { (r.subject_name) } " " (status_badge(&r.status)) }
-                    div { (r.paper_title) }
-                    div class="meta" {
-                        (r.paper_venue.clone().unwrap_or_default())
-                        (r.paper_doi.as_ref().map(|d| format!(" · {d}")).unwrap_or_default())
-                        " · reported " (fmt_date(r.verified_at.or(Some(r.created_at)))) " by " (r.reporter_name) " (" (r.reporter_affiliation) ")"
-                    }
-                }
-            }
-        },
-    )
-}
-
-pub fn review_detail_page(user: &User, r: &ReportRow, error: Option<&str>) -> Markup {
-    let decided = r.status == "accepted" || r.status == "rejected";
-    layout(
-        "Review report",
-        Some(user),
-        html! {
-            h1 { (r.subject_name) " " (status_badge(&r.status)) }
-            (err_box(error))
-            div class="card" {
-                h3 { "Paper" }
-                dl {
-                    dt { "Title" } dd { (r.paper_title) }
-                    dt { "DOI" } dd { (dash(&r.paper_doi)) }
-                    dt { "Venue" } dd { (dash(&r.paper_venue)) }
-                    dt { "Author affiliation" } dd { (dash(&r.subject_affiliation)) }
-                    dt { "Author email" } dd { (dash(&r.subject_email)) }
-                }
-            }
-            div class="card" {
-                h3 { "Reporter (confidential)" }
-                dl {
-                    dt { "Name" } dd { (r.reporter_name) }
-                    dt { "Email" } dd { (r.reporter_email) }
-                    dt { "Affiliation" } dd { (r.reporter_affiliation) }
-                    dt { "Email verified" } dd { (if r.verified_at.is_some() { fmt_date(r.verified_at) } else { "not yet".into() }) }
-                }
-            }
-            div class="card" {
-                h3 { "Report" }
-                dd { (r.description) }
-            }
-            @if decided {
-                div class="card" {
-                    h3 { "Decision · " (fmt_date(r.decided_at)) }
-                    dl {
-                        dt { "Editor-facing summary" } dd { (dash(&r.summary)) }
-                        dt { "Internal note" } dd { (dash(&r.decision_note)) }
-                    }
-                }
-            }
-            h2 { (if r.status == "submitted" { "Decide" } else { "Revise decision" }) }
-            form method="post" action=(format!("/review/{}/decision", r.id)) {
-                label { span class="req" { "Decision" }
-                    select name="status" {
-                        option value="accepted" selected[r.status == "accepted"] { "Accept: visible to editors" }
-                        option value="rejected" selected[r.status == "rejected"] { "Reject: never shown" }
-                    }
-                }
-                label { span { "Summary shown to editors (required when accepting; never include the reporter)" }
-                    textarea name="summary" maxlength="4000" { (r.summary.clone().unwrap_or_default()) }
-                }
-                label { span { "Internal note (review team only)" } textarea name="decision_note" maxlength="4000" { (r.decision_note.clone().unwrap_or_default()) } }
-                button { "Save decision" }
-            }
-        },
-    )
+    /// Date the report was confirmed, falling back to when it was filed.
+    pub fn reported_on(&self) -> String {
+        fmt_date(self.verified_at.or(Some(self.created_at)))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -270,121 +100,20 @@ impl SearchHit {
             score,
         }
     }
-}
 
-fn snippet(s: &Option<String>, n: usize) -> String {
-    match s {
-        Some(s) if s.chars().count() > n => format!("{}…", s.chars().take(n - 1).collect::<String>().trim_end()),
-        Some(s) => s.clone(),
-        None => String::new(),
+    pub fn percent(&self) -> i64 {
+        (self.score * 100.0).round() as i64
     }
-}
 
-pub fn incidents_page(user: Option<&User>, q: &str, hits: &[SearchHit]) -> Markup {
-    let title = if q.is_empty() { "Reported incidents".to_string() } else { format!("Search: {q}") };
-    layout(
-        &title,
-        user,
-        html! {
-            h1 { "Reported incidents" }
-            p class="lead" {
-                "Accepted reports of undisclosed AI-generated authorship, vetted by the review team. Search by author name, DOI or paper title. Name matching is fuzzy and ignores word order, so \"Wong Ka Ming\" also finds \"K. M. Wong\". Reporter identities are never shown."
-            }
-            form method="get" action="/" class="row" {
-                label { span { "Author name, DOI or paper title" } input name="q" value=(q) autofocus placeholder="e.g. K. M. Wong, 10.1234/abcd.5678"; }
-                button { "Search" }
-                @if !q.is_empty() { a href="/" style="align-self:center" { "Clear" } }
-            }
-            @if !q.is_empty() && hits.is_empty() { div class="notice ok" style="margin-top:16px" { "No accepted reports match \"" (q) "\"." } }
-            @if q.is_empty() && hits.is_empty() { div class="notice" style="margin-top:16px" { "No accepted reports yet." } }
-            @if !hits.is_empty() {
-                h2 { (if q.is_empty() { format!("Latest {}", hits.len()) } else { format!("{} match{}", hits.len(), if hits.len() == 1 { "" } else { "es" }) }) }
-                table {
-                    thead { tr { th { "Author" } th { "Paper" } th { "Venue" } th { "Accepted" } @if !q.is_empty() { th { "Match" } } } }
-                    tbody {
-                        @for h in hits {
-                            tr {
-                                td { a href=(format!("/record/{}", h.id)) { (h.subject_name) } div class="meta" { (h.subject_affiliation.clone().unwrap_or_default()) } }
-                                td { (h.paper_title) div class="meta" { (h.paper_doi.clone().unwrap_or_default()) } div class="meta" { (snippet(&h.summary, 180)) } }
-                                td { (h.paper_venue.clone().unwrap_or_default()) }
-                                td { (fmt_date(h.decided_at)) }
-                                @if !q.is_empty() { td { (format!("{}%", (h.score * 100.0).round() as i64)) } }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-    )
-}
-
-pub fn record_page(user: Option<&User>, r: &ReportRow, related: i64) -> Markup {
-    layout(
-        "Record",
-        user,
-        html! {
-            h1 { (r.subject_name) }
-            p class="meta" {
-                "Accepted " (fmt_date(r.decided_at))
-                @if related > 0 { " · " (related) " other accepted report" (if related > 1 { "s" } else { "" }) " about an author with this name" }
-            }
-            div class="card" {
-                dl {
-                    dt { "Affiliation" } dd { (dash(&r.subject_affiliation)) }
-                    dt { "Paper" } dd { (r.paper_title) }
-                    dt { "DOI" } dd { (dash(&r.paper_doi)) }
-                    dt { "Venue" } dd { (dash(&r.paper_venue)) }
-                }
-            }
-            div class="card" {
-                h3 { "Summary from the review team" }
-                dd { (r.summary.clone().unwrap_or_default()) }
-            }
-            @if user.is_some() { p class="meta" { "This view has been recorded in the audit log." } }
-            p class="meta" { a href="/" { "Back to incidents" } " · " a href="/report" { "File a report" } }
-        },
-    )
-}
-
-pub fn admin_users_page(user: &User, users: &[User], error: Option<&str>) -> Markup {
-    layout(
-        "Users",
-        Some(user),
-        html! {
-            h1 { "Staff accounts" }
-            (err_box(error))
-            table {
-                thead { tr { th { "Email" } th { "Name" } th { "Role" } th { "Status" } th {} } }
-                tbody {
-                    @for u in users {
-                        tr {
-                            td { (u.email) } td { (u.name) } td { (u.role.as_str()) } td { (if u.disabled { "disabled" } else { "active" }) }
-                            td {
-                                @if u.id != user.id {
-                                    form method="post" action=(format!("/admin/users/{}/{}", u.id, if u.disabled { "enable" } else { "disable" })) {
-                                        button class="secondary inline" { (if u.disabled { "Enable" } else { "Disable" }) }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            h2 { "Add staff" }
-            form method="post" action="/admin/users" {
-                label { span class="req" { "Email" } input name="email" type="email" required; }
-                label { span class="req" { "Name" } input name="name" required maxlength="200"; }
-                label { span class="req" { "Role" }
-                    select name="role" {
-                        option value=(Role::Editor.as_str()) { "editor: search accepted records" }
-                        option value=(Role::Reviewer.as_str()) { "reviewer: vet reports, see reporters" }
-                        option value=(Role::Admin.as_str()) { "admin: everything" }
-                    }
-                }
-                button { "Add" }
-            }
-        },
-    )
+    /// First 180 characters of the summary.
+    pub fn summary_snippet(&self) -> String {
+        const N: usize = 180;
+        match &self.summary {
+            Some(s) if s.chars().count() > N => format!("{}…", s.chars().take(N - 1).collect::<String>().trim_end()),
+            Some(s) => s.clone(),
+            None => String::new(),
+        }
+    }
 }
 
 pub struct AuditRow {
@@ -395,26 +124,146 @@ pub struct AuditRow {
     pub detail: Option<String>,
 }
 
-pub fn audit_page(user: &User, rows: &[AuditRow]) -> Markup {
-    layout(
-        "Audit log",
-        Some(user),
-        html! {
-            h1 { "Audit log" }
-            table {
-                thead { tr { th { "When (UTC)" } th { "Who" } th { "Action" } th { "Report" } th { "Detail" } } }
-                tbody {
-                    @for r in rows {
-                        tr {
-                            td { (r.at.format("%Y-%m-%d %H:%M:%S")) }
-                            td { (r.actor_email.clone().unwrap_or_default()) }
-                            td { (r.action) }
-                            td { @if let Some(id) = r.report_id { a href=(format!("/review/{id}")) { (id.to_string()[..8]) } } }
-                            td { (r.detail.clone().unwrap_or_default()) }
-                        }
-                    }
-                }
-            }
-        },
-    )
+impl AuditRow {
+    pub fn short_report_id(&self) -> String {
+        self.report_id.map(|id| id.to_string()[..8].to_string()).unwrap_or_default()
+    }
+}
+
+/// Field values echoed back into the report form after a validation error.
+#[derive(Clone, Debug, Default)]
+pub struct ReportForm {
+    pub reporter_name: String,
+    pub reporter_email: String,
+    pub reporter_affiliation: String,
+    pub subject_name: String,
+    pub subject_affiliation: String,
+    pub subject_email: String,
+    pub paper_title: String,
+    pub paper_doi: String,
+    pub paper_venue: String,
+    pub description: String,
+}
+
+// ---------- templates ----------
+
+#[derive(Template)]
+#[template(path = "report.html")]
+pub struct ReportPage<'a> {
+    pub page: Page<'a>,
+    pub form: &'a ReportForm,
+    pub error: Option<&'a str>,
+}
+
+pub fn report_page<'a>(user: Option<&'a User>, form: &'a ReportForm, error: Option<&'a str>) -> ReportPage<'a> {
+    ReportPage { page: Page::new("Report", user), form, error }
+}
+
+#[derive(Template)]
+#[template(path = "message.html")]
+pub struct MessagePage<'a> {
+    pub page: Page<'a>,
+    pub body: &'a str,
+    /// Notice style: `ok` or `err`.
+    pub kind: &'a str,
+}
+
+pub fn message_page<'a>(user: Option<&'a User>, title: &'a str, body: &'a str, kind: &'a str) -> MessagePage<'a> {
+    MessagePage { page: Page::new(title, user), body, kind }
+}
+
+#[derive(Template)]
+#[template(path = "login.html")]
+pub struct LoginPage<'a> {
+    pub page: Page<'a>,
+    pub next: &'a str,
+    pub sent: bool,
+    /// Present when Google sign-in is configured.
+    pub google_href: Option<String>,
+    pub error: Option<&'a str>,
+}
+
+pub fn login_page<'a>(next: Option<&'a str>, sent: bool, google: bool, denied: Option<&'a str>) -> LoginPage<'a> {
+    let next = next.unwrap_or("");
+    let google_href = google.then(|| if next.is_empty() { "/auth/google".to_string() } else { format!("/auth/google?next={}", crate::google::urlencode(next)) });
+    LoginPage { page: Page::new("Staff sign in", None), next, sent, google_href, error: denied }
+}
+
+#[derive(Template)]
+#[template(path = "review_list.html")]
+pub struct ReviewListPage<'a> {
+    pub page: Page<'a>,
+    pub reports: &'a [ReportRow],
+    pub status: &'a str,
+    pub other_statuses: Vec<&'static str>,
+}
+
+pub fn review_list_page<'a>(user: &'a User, reports: &'a [ReportRow], status: &'a str) -> ReviewListPage<'a> {
+    let other_statuses = ["submitted", "accepted", "rejected"].into_iter().filter(|s| *s != status).collect();
+    ReviewListPage { page: Page::new("Review queue", Some(user)), reports, status, other_statuses }
+}
+
+#[derive(Template)]
+#[template(path = "review_detail.html")]
+pub struct ReviewDetailPage<'a> {
+    pub page: Page<'a>,
+    pub r: &'a ReportRow,
+    pub error: Option<&'a str>,
+}
+
+pub fn review_detail_page<'a>(user: &'a User, r: &'a ReportRow, error: Option<&'a str>) -> ReviewDetailPage<'a> {
+    ReviewDetailPage { page: Page::new("Review report", Some(user)), r, error }
+}
+
+#[derive(Template)]
+#[template(path = "incidents.html")]
+pub struct IncidentsPage<'a> {
+    pub page: Page<'a>,
+    pub q: &'a str,
+    pub hits: &'a [SearchHit],
+    /// "Latest 5" or "3 matches".
+    pub heading: String,
+}
+
+pub fn incidents_page<'a>(user: Option<&'a User>, q: &'a str, hits: &'a [SearchHit]) -> IncidentsPage<'a> {
+    let title = if q.is_empty() { "Reported incidents".to_string() } else { format!("Search: {q}") };
+    let heading = if q.is_empty() { format!("Latest {}", hits.len()) } else { format!("{} match{}", hits.len(), if hits.len() == 1 { "" } else { "es" }) };
+    IncidentsPage { page: Page::new(title, user), q, hits, heading }
+}
+
+#[derive(Template)]
+#[template(path = "record.html")]
+pub struct RecordPage<'a> {
+    pub page: Page<'a>,
+    pub r: &'a ReportRow,
+    /// Other accepted reports about the same name.
+    pub related: i64,
+}
+
+pub fn record_page<'a>(user: Option<&'a User>, r: &'a ReportRow, related: i64) -> RecordPage<'a> {
+    RecordPage { page: Page::new("Record", user), r, related }
+}
+
+#[derive(Template)]
+#[template(path = "admin_users.html")]
+pub struct AdminUsersPage<'a> {
+    pub page: Page<'a>,
+    pub me: &'a User,
+    pub users: &'a [User],
+    pub error: Option<&'a str>,
+}
+
+pub fn admin_users_page<'a>(me: &'a User, users: &'a [User], error: Option<&'a str>) -> AdminUsersPage<'a> {
+    AdminUsersPage { page: Page::new("Users", Some(me)), me, users, error }
+}
+
+#[derive(Template)]
+#[template(path = "audit.html")]
+pub struct AuditPage<'a> {
+    pub page: Page<'a>,
+    pub rows: &'a [AuditRow],
+}
+
+pub fn audit_page<'a>(user: &'a User, rows: &'a [AuditRow]) -> AuditPage<'a> {
+    AuditPage { page: Page::new("Audit log", Some(user)), rows }
 }

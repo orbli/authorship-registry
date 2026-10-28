@@ -1,0 +1,18 @@
+{% extends "layout.html" %}
+{% block body %}
+<h1>Audit log</h1>
+<table>
+  <thead><tr><th>When (UTC)</th><th>Who</th><th>Action</th><th>Report</th><th>Detail</th></tr></thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td>{{ r.at.format("%Y-%m-%d %H:%M:%S") }}</td>
+      <td>{{ r.actor_email|or_empty }}</td>
+      <td>{{ r.action }}</td>
+      <td>{% if let Some(id) = r.report_id %}<a href="/review/{{ id }}">{{ r.short_report_id() }}</a>{% endif %}</td>
+      <td>{{ r.detail|or_empty }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

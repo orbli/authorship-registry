@@ -4,16 +4,16 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use askama::Template;
 use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{FromRequestParts, OriginalUri, Path, Query, State};
 use axum::http::request::Parts;
-use axum::http::{HeaderMap, StatusCode};
-use axum::response::{IntoResponse, Redirect, Response};
+use axum::http::{HeaderMap, StatusCode, header};
+use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use chrono::Utc;
-use maud::Markup;
 use uuid::Uuid;
 
 use crate::auth::{self, Role, SESSION_COOKIE, TokenPurpose, User, user_by_email, user_from_session};
@@ -22,7 +22,10 @@ use crate::db::Db;
 use crate::google::{self, TokenFetch};
 use crate::mail::{Mail, Mailer};
 use crate::names::{looks_like_doi, name_key, name_score, normalize_doi};
-use crate::views::pages::{self, AuditRow, ReportForm, ReportRow, SearchHit};
+use crate::views::{
+    self,
+    pages::{self, AuditRow, ReportForm, ReportRow, SearchHit},
+};
 
 pub struct AppState {
     pub cfg: Config,
@@ -125,12 +128,22 @@ fn session_cookie(value: String, secure: bool, hours: i64) -> Cookie<'static> {
     Cookie::build((SESSION_COOKIE, value)).http_only(true).secure(secure).same_site(SameSite::Lax).path("/").max_age(time::Duration::hours(hours)).build()
 }
 
-fn html(m: Markup) -> Response {
-    m.into_response()
+fn html(t: impl Template) -> Response {
+    html_status(StatusCode::OK, t)
 }
 
-fn html_status(status: StatusCode, m: Markup) -> Response {
-    (status, m).into_response()
+fn html_status(status: StatusCode, t: impl Template) -> Response {
+    match t.render() {
+        Ok(body) => (status, Html(body)).into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "template render failed");
+            (StatusCode::INTERNAL_SERVER_ERROR, "template error").into_response()
+        }
+    }
+}
+
+async fn stylesheet() -> Response {
+    ([(header::CONTENT_TYPE, "text/css; charset=utf-8"), (header::CACHE_CONTROL, "public, max-age=31536000, immutable")], views::CSS).into_response()
 }
 
 /// Redirect anonymous visitors to the login page; refuse the wrong role. Admins pass everything.
@@ -150,6 +163,7 @@ fn safe_next(n: Option<&str>) -> Option<String> {
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
+        .route("/static/app.css", get(stylesheet))
         .route("/", get(incidents))
         .route("/search", get(search_redirect))
         .route("/record/{id}", get(record))

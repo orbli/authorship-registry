@@ -1,0 +1,16 @@
+{% extends "layout.html" %}
+{% import "macros.html" as m %}
+{% block body %}
+<h1>Review queue</h1>
+<p class="lead">Showing <strong>{{ status }}</strong> reports.
+  {% for s in other_statuses %} · <a href="/review?status={{ s }}">{{ s }}</a>{% endfor %}
+</p>
+{% if reports.is_empty() %}<div class="notice">Nothing here.</div>{% endif %}
+{% for r in reports %}
+<div class="card">
+  <h3><a href="/review/{{ r.id }}">{{ r.subject_name }}</a> {% call m::badge(r.status) %}{% endcall %}</h3>
+  <div>{{ r.paper_title }}</div>
+  <div class="meta">{{ r.paper_venue|or_empty }}{% if let Some(d) = r.paper_doi %} · {{ d }}{% endif %} · reported {{ r.reported_on() }} by {{ r.reporter_name }} ({{ r.reporter_affiliation }})</div>
+</div>
+{% endfor %}
+{% endblock %}

@@ -1,0 +1,21 @@
+{% extends "layout.html" %}
+{% block body %}
+<h1>Staff sign in</h1>
+<p class="lead">For reviewers, editors and administrators. Your address must already be registered by an administrator.</p>
+{% include "partials/error.html" %}
+{% if sent %}
+<div class="notice ok">If that address belongs to a registered reviewer or editor, a sign-in link is on its way. It expires shortly.</div>
+{% else %}
+{% if let Some(href) = google_href %}
+<p>
+  <a href="{{ href }}" class="button">Sign in with Google</a>
+  <span class="meta" style="margin-left:10px">uses the Google account's email; it must match a staff account</span>
+</p>
+{% endif %}
+<form method="post" action="/login">
+  <input type="hidden" name="next" value="{{ next }}">
+  <label><span class="req">Email</span><input name="email" type="email" required{% if google_href.is_none() %} autofocus{% endif %}></label>
+  <button{% if google_href.is_some() %} class="secondary"{% endif %}>Email me a sign-in link</button>
+</form>
+{% endif %}
+{% endblock %}
