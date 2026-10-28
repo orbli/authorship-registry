@@ -18,6 +18,9 @@ export interface Config {
   baseUrl: string;
   /** Seeded as admin on migration if no such user exists */
   adminEmail?: string;
+  /** "Sign in with Google" for staff; off when unset. Secret from GOOGLE_CLIENT_SECRET or the
+   *  SSM SecureString named by GOOGLE_CLIENT_SECRET_PARAM. */
+  google?: { clientId: string; clientSecret?: string; clientSecretParam?: string };
   sessionTtlHours: number;
   tokenTtlMinutes: number;
   port: number;
@@ -33,6 +36,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (!['console', 'ses', 'smtp'].includes(mailDriver)) throw new Error(`Unknown MAIL_DRIVER ${mailDriver}`);
   if (mailDriver === 'smtp' && !(env.SMTP_USER ?? env.SMTP_USERNAME)) throw new Error('SMTP_USER required for MAIL_DRIVER=smtp');
   if (mailDriver === 'smtp' && !env.SMTP_PASSWORD && !env.SMTP_PASSWORD_PARAM) throw new Error('SMTP_PASSWORD or SMTP_PASSWORD_PARAM required for MAIL_DRIVER=smtp');
+  if (env.GOOGLE_CLIENT_ID && !env.GOOGLE_CLIENT_SECRET && !env.GOOGLE_CLIENT_SECRET_PARAM) throw new Error('GOOGLE_CLIENT_SECRET or GOOGLE_CLIENT_SECRET_PARAM required with GOOGLE_CLIENT_ID');
   return {
     dbDialect: dialect,
     databaseUrl: env.DATABASE_URL,
@@ -49,6 +53,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     },
     baseUrl: (env.BASE_URL ?? (env.AWS_LAMBDA_FUNCTION_NAME ? '' : `http://localhost:${env.PORT ?? 3000}`)).replace(/\/$/, ''),
     adminEmail: env.ADMIN_EMAIL?.toLowerCase(),
+    google: env.GOOGLE_CLIENT_ID ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET, clientSecretParam: env.GOOGLE_CLIENT_SECRET_PARAM } : undefined,
     sessionTtlHours: Number(env.SESSION_TTL_HOURS ?? 12),
     tokenTtlMinutes: Number(env.TOKEN_TTL_MINUTES ?? 30),
     port: Number(env.PORT ?? 3000),

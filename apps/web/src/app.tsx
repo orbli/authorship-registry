@@ -6,6 +6,7 @@ import { one, type Db } from './db/index.js';
 import type { Mailer } from './mail.js';
 import { ROLES, SESSION_COOKIE, consumeToken, createSession, destroySession, issueToken, loadUser, requireRole, type AuthEnv, type Role, type User } from './auth.js';
 import { looksLikeDoi, nameKey, nameScore, normalizeDoi } from './names.js';
+import { beginGoogleLogin, finishGoogleLogin, googleAuthUrl, googleEnabled, type FetchLike } from './google.js';
 import { page } from './views/layout.js';
 import { AdminUsersPage, AuditPage, IncidentsPage, LoginPage, MessagePage, RecordPage, ReportPage, ReviewDetailPage, ReviewListPage, type ReportFormValues, type ReportRow, type SearchHit, type AuditRow } from './views/pages.js';
 
@@ -13,11 +14,13 @@ export interface Deps {
   db: Db;
   mailer: Mailer;
   cfg: Config;
+  /** Only tests pass this: a stand-in for Google's token endpoint. */
+  fetchImpl?: FetchLike;
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export function createApp({ db, mailer, cfg }: Deps) {
+export function createApp({ db, mailer, cfg, fetchImpl }: Deps) {
   const app = new Hono<AuthEnv>();
 
   const audit = (p: { actor?: User; action: string; reportId?: string | null; detail?: string }) =>
@@ -136,7 +139,51 @@ export function createApp({ db, mailer, cfg }: Deps) {
 
   // ---------- staff auth ----------
 
-  app.get('/login', (c) => c.html(page(<LoginPage next={c.req.query('next')} sent={c.req.query('sent') === '1'} />)));
+  const DENIED: Record<string, string> = {
+    staff: 'That Google account is not a registered staff account. Ask an administrator to add your address, or use the email link below.',
+    google: 'Google sign-in did not complete. Try again, or use the email link below.',
+  };
+  app.get('/login', (c) =>
+    c.html(page(<LoginPage next={c.req.query('next')} sent={c.req.query('sent') === '1'} google={googleEnabled(cfg)} denied={DENIED[c.req.query('denied') ?? '']} />)),
+  );
+
+  // ---------- staff auth: Google (optional) ----------
+
+  const GOOGLE_COOKIE = 'goauth';
+  const googleRedirectUri = (c: { req: { url: string } }) => `${baseUrl(c)}/auth/google/callback`;
+  const safeNext = (n: string | undefined) => (n && n.startsWith('/') && !n.startsWith('//') ? n : '');
+
+  app.get('/auth/google', (c) => {
+    if (!googleEnabled(cfg)) return c.notFound();
+    const { state, verifier, challenge } = beginGoogleLogin();
+    setCookie(c, GOOGLE_COOKIE, `${state}.${verifier}.${encodeURIComponent(safeNext(c.req.query('next')))}`, { httpOnly: true, secure: secureCookie(c), sameSite: 'Lax', path: '/auth/google', maxAge: 600 });
+    return c.redirect(googleAuthUrl({ clientId: cfg.google!.clientId, redirectUri: googleRedirectUri(c), state, challenge }));
+  });
+
+  app.get('/auth/google/callback', async (c) => {
+    if (!googleEnabled(cfg)) return c.notFound();
+    const [state, verifier, nextEnc] = (getCookie(c, GOOGLE_COOKIE) ?? '').split('.');
+    deleteCookie(c, GOOGLE_COOKIE, { path: '/auth/google' });
+    const code = c.req.query('code');
+    if (!code || !state || !verifier || c.req.query('state') !== state) return c.redirect('/login?denied=google');
+    let email: string;
+    try {
+      ({ email } = await finishGoogleLogin(cfg, { code, verifier, redirectUri: googleRedirectUri(c) }, fetchImpl));
+    } catch (e) {
+      console.error('google sign-in failed:', (e as Error).message);
+      return c.redirect('/login?denied=google');
+    }
+    const user = await one<User>(db, `SELECT id, email, name, role, disabled FROM users WHERE email = $1`, [email]);
+    if (!user || user.disabled) {
+      await audit({ action: 'login_denied', detail: `google: ${email}` });
+      return c.redirect('/login?denied=staff');
+    }
+    const sid = await createSession(db, user.id, cfg.sessionTtlHours);
+    setCookie(c, SESSION_COOKIE, sid, { httpOnly: true, secure: secureCookie(c), sameSite: 'Lax', path: '/', maxAge: cfg.sessionTtlHours * 3600 });
+    await audit({ actor: user, action: 'login', detail: 'google' });
+    const next = safeNext(decodeURIComponent(nextEnc ?? ''));
+    return c.redirect(next || (user.role === 'editor' ? '/' : '/review'));
+  });
 
   app.post('/login', async (c) => {
     const f = await c.req.parseBody();

@@ -48,6 +48,8 @@ npm test               # 24 tests: unit + full end-to-end flow
 | `SENDER_EMAIL` | Verified SES sender |
 | `BASE_URL` | Public origin for links in emails. Unset on Lambda = use the request origin. |
 | `ADMIN_EMAIL` | Seeded as admin on first migration |
+| `GOOGLE_CLIENT_ID` | Enables "Sign in with Google" for staff (see below). Unset = button hidden. |
+| `GOOGLE_CLIENT_SECRET` / `GOOGLE_CLIENT_SECRET_PARAM` | The OAuth client secret, inline or as an SSM SecureString name |
 | `MIGRATE_ON_START` | default `true`; or run `npm run migrate` separately |
 
 ## Deploy: AWS, scale to zero (`infra/`)
@@ -92,3 +94,39 @@ kubectl apply -k deploy/k8s     # after creating the two secrets named in kustom
 - ORCID sign-in for reporters and ORCID iDs for reported authors, which would
   make identity exact instead of fuzzy.
 - Custom domain in front of the Function URL.
+
+## Staff "Sign in with Google"
+
+A second door next to the emailed link. Google only proves which email address
+the person controls; the app then looks that address up in `users` exactly as a
+magic-link login does. Anyone whose address is not a staff account is refused
+(`/login?denied=staff`, audit row `login_denied`). No account is ever created
+from a Google sign-in.
+
+Getting the credential from Google Cloud (one time, about five minutes):
+
+1. https://console.cloud.google.com → pick or create a project (any project; it
+   is just a container for the OAuth client).
+2. **APIs & Services → OAuth consent screen** (newer consoles call it
+   *Google Auth Platform → Branding / Audience*). User type **External**, app
+   name "Authorship Registry", your support email, no extra scopes (only
+   `openid` and `email` are requested, which need no verification).
+   Under *Audience* either add each staff address as a **test user** while the
+   app is in Testing, or click **Publish app** so any Google account can reach
+   the consent screen (the staff check still happens in this app).
+3. **APIs & Services → Credentials → Create credentials → OAuth client ID**,
+   type **Web application**. Authorized redirect URIs, one per deployment:
+   `https://registry-lab.orbb.li/auth/google/callback`,
+   `https://ada.orbb.li/auth/google/callback`,
+   `http://localhost:3000/auth/google/callback`.
+   No "authorized JavaScript origins" are needed (server-side flow).
+4. Copy the **Client ID** (public, ends in `.apps.googleusercontent.com`) and
+   the **Client secret** (keep out of git).
+
+Wire it in:
+
+- Kubernetes: add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` keys to the
+  `registry-app` Secret and restart; the Deployment reads both as optional.
+- AWS: `aws ssm put-parameter --name /authorship-registry/google-client-secret --type SecureString --value "$SECRET"`
+  then `cdk deploy ... -c googleClientId=<client id>`.
+- Local: `GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... npm run dev`.

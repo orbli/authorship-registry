@@ -62,17 +62,27 @@ export const MessagePage: FC<{ user?: User; title: string; body: string; kind?: 
   </Layout>
 );
 
-export const LoginPage: FC<{ next?: string; sent?: boolean }> = ({ next, sent }) => (
+export const LoginPage: FC<{ next?: string; sent?: boolean; google?: boolean; denied?: string }> = ({ next, sent, google, denied }) => (
   <Layout title="Staff sign in">
     <h1>Staff sign in</h1>
+    <p class="lead">For reviewers, editors and administrators. Your address must already be registered by an administrator.</p>
+    {denied ? <div class="notice err">{denied}</div> : null}
     {sent ? (
       <div class="notice ok">If that address belongs to a registered reviewer or editor, a sign-in link is on its way. It expires shortly.</div>
     ) : (
-      <form method="post" action="/login">
-        <input type="hidden" name="next" value={next ?? ''} />
-        <label><span class="req">Email</span><input name="email" type="email" required autofocus /></label>
-        <button>Email me a sign-in link</button>
-      </form>
+      <>
+        {google ? (
+          <p>
+            <a href={`/auth/google${next ? `?next=${encodeURIComponent(next)}` : ''}`} class="button">Sign in with Google</a>
+            <span class="meta" style="margin-left:10px">uses the Google account's email; it must match a staff account</span>
+          </p>
+        ) : null}
+        <form method="post" action="/login">
+          <input type="hidden" name="next" value={next ?? ''} />
+          <label><span class="req">Email</span><input name="email" type="email" required autofocus={!google} /></label>
+          <button class={google ? 'secondary' : ''}>Email me a sign-in link</button>
+        </form>
+      </>
     )}
   </Layout>
 );

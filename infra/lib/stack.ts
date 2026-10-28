@@ -34,6 +34,8 @@ export interface RegistryStackProps extends cdk.StackProps {
   domainName?: string;
   /** ACM certificate ARN for domainName. Must live in us-east-1 (CloudFront requirement). */
   certificateArn?: string;
+  /** OAuth client ID for "Sign in with Google" (staff only). Secret goes in SSM /authorship-registry/google-client-secret. */
+  googleClientId?: string;
 }
 
 export class RegistryStack extends cdk.Stack {
@@ -62,6 +64,10 @@ export class RegistryStack extends cdk.Stack {
             SMTP_PORT: '465',
             SMTP_PASSWORD_PARAM: smtpPasswordParam,
           };
+
+    // --- Staff "Sign in with Google" (optional): client ID is public, secret lives in SSM.
+    const googleSecretParam = '/authorship-registry/google-client-secret';
+    const googleEnv: Record<string, string> = props.googleClientId ? { GOOGLE_CLIENT_ID: props.googleClientId, GOOGLE_CLIENT_SECRET_PARAM: googleSecretParam } : {};
 
     // --- Custom domain (optional): CloudFront terminates TLS for the hostname and relays to the
     // Function URL. Function URLs cannot carry a custom hostname themselves, and Cloudflare's
@@ -97,6 +103,7 @@ export class RegistryStack extends cdk.Stack {
         DB_DIALECT: 'dsql',
         DSQL_ENDPOINT: dsqlEndpoint,
         ...mailEnv,
+        ...googleEnv,
         ...(props.adminEmail ? { ADMIN_EMAIL: props.adminEmail } : {}),
         ...(publicUrl ? { BASE_URL: publicUrl } : {}),
         ...(originSecret ? { ORIGIN_SECRET: originSecret } : {}),
@@ -105,8 +112,9 @@ export class RegistryStack extends cdk.Stack {
 
     fn.addToRolePolicy(new iam.PolicyStatement({ actions: ['dsql:DbConnectAdmin'], resources: [cluster.attrResourceArn] }));
     if (sender) sender.grantSendEmail(fn);
-    if (props.mailDriver === 'smtp') {
-      fn.addToRolePolicy(new iam.PolicyStatement({ actions: ['ssm:GetParameter'], resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: smtpPasswordParam.replace(/^\//, '') })] }));
+    const ssmParams = [...(props.mailDriver === 'smtp' ? [smtpPasswordParam] : []), ...(props.googleClientId ? [googleSecretParam] : [])];
+    if (ssmParams.length) {
+      fn.addToRolePolicy(new iam.PolicyStatement({ actions: ['ssm:GetParameter'], resources: ssmParams.map((p) => this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: p.replace(/^\//, '') })) }));
       // SecureString parameters are encrypted with the AWS-managed SSM key.
       fn.addToRolePolicy(new iam.PolicyStatement({ actions: ['kms:Decrypt'], resources: ['*'], conditions: { StringEquals: { 'kms:ViaService': `ssm.${this.region}.amazonaws.com` } } }));
     }

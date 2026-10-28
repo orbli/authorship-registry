@@ -13,5 +13,6 @@ new RegistryStack(app, 'AuthorshipRegistry', {
   baseUrl: app.node.tryGetContext('baseUrl'),
   domainName: app.node.tryGetContext('domainName'),
   certificateArn: app.node.tryGetContext('certificateArn'),
+  googleClientId: app.node.tryGetContext('googleClientId'),
   description: 'Authorship Registry: Lambda + Aurora DSQL + SES, scale-to-zero',
 });
