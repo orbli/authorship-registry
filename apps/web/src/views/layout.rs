@@ -1,8 +1,11 @@
-import type { FC, PropsWithChildren } from 'hono/jsx';
-import { html } from 'hono/html';
-import type { User } from '../auth.js';
+//! Page chrome shared by every view. Same markup and stylesheet as before.
 
-const CSS = `
+use chrono::{DateTime, Utc};
+use maud::{DOCTYPE, Markup, PreEscaped, html};
+
+use crate::auth::{Role, User};
+
+const CSS: &str = r#"
 :root{--bg:#fafaf9;--fg:#1c1917;--muted:#57534e;--line:#e7e5e4;--accent:#1d4ed8;--accent-fg:#fff;--warn:#b45309;--ok:#15803d;--card:#fff}
 @media (prefers-color-scheme:dark){:root{--bg:#1c1917;--fg:#f5f5f4;--muted:#a8a29e;--line:#44403c;--accent:#60a5fa;--accent-fg:#1c1917;--card:#292524}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans","Noto Sans CJK TC",sans-serif}
@@ -19,46 +22,50 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
 .badge{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;border:1px solid var(--line);color:var(--muted)}.badge.accepted{color:var(--ok);border-color:var(--ok)}.badge.rejected{color:var(--warn);border-color:var(--warn)}
 dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;font-size:15px}dt{color:var(--muted)}dd{margin:0;white-space:pre-wrap}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:end}.row label{flex:1;min-width:200px}
-`;
+"#;
 
-export const Layout: FC<PropsWithChildren<{ title: string; user?: User }>> = ({ title, user, children }) => (
-  <html lang="en">
-    <head>
-      <meta charset="utf-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1" />
-      <meta name="robots" content="noindex" />
-      <title>{title} · Authorship Registry</title>
-      <style>{html`${CSS}`}</style>
-    </head>
-    <body>
-      <header>
-        <div class="in">
-          <a class="brand" href="/">Authorship Registry</a>
-          <nav>
-            <a href="/">Incidents</a>
-            <a href="/report">Report</a>
-            {user && (user.role === 'reviewer' || user.role === 'admin') ? <a href="/review">Review</a> : null}
-            {user?.role === 'admin' ? <a href="/admin/users">Users</a> : null}
-            {user?.role === 'admin' ? <a href="/admin/audit">Audit</a> : null}
-          </nav>
-          <div class="me">
-            {user ? (
-              <>
-                <span>{user.email} · {user.role}</span>
-                <form method="post" action="/logout" style="display:inline"><button class="secondary inline">Sign out</button></form>
-              </>
-            ) : (
-              <a href="/login">Staff sign in</a>
-            )}
-          </div>
-        </div>
-      </header>
-      <main>{children}</main>
-      <footer>Reports are confidential. Reporter identities are visible to the review team only and are never shown to editors.</footer>
-    </body>
-  </html>
-);
+pub fn layout(title: &str, user: Option<&User>, body: Markup) -> Markup {
+    let is = |r: Role| user.is_some_and(|u| u.role == r || u.role == Role::Admin);
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width, initial-scale=1";
+                meta name="robots" content="noindex";
+                title { (title) " · Authorship Registry" }
+                style { (PreEscaped(CSS)) }
+            }
+            body {
+                header {
+                    div class="in" {
+                        a class="brand" href="/" { "Authorship Registry" }
+                        nav {
+                            a href="/" { "Incidents" }
+                            a href="/report" { "Report" }
+                            @if is(Role::Reviewer) { a href="/review" { "Review" } }
+                            @if user.is_some_and(|u| u.role == Role::Admin) {
+                                a href="/admin/users" { "Users" }
+                                a href="/admin/audit" { "Audit" }
+                            }
+                        }
+                        div class="me" {
+                            @if let Some(u) = user {
+                                span { (u.email) " · " (u.role.as_str()) }
+                                form method="post" action="/logout" style="display:inline" { button class="secondary inline" { "Sign out" } }
+                            } @else {
+                                a href="/login" { "Staff sign in" }
+                            }
+                        }
+                    }
+                }
+                main { (body) }
+                footer { "Reports are confidential. Reporter identities are visible to the review team only and are never shown to editors." }
+            }
+        }
+    }
+}
 
-export const page = (node: unknown) => html`<!doctype html>${node}`;
-
-export const fmtDate = (d: Date | string | null | undefined) => (d ? new Date(d).toISOString().slice(0, 10) : '');
+pub fn fmt_date(d: Option<DateTime<Utc>>) -> String {
+    d.map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_default()
+}

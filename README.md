@@ -6,14 +6,14 @@ accepted records before a publication decision.
 
 ## Shape
 
-- Monorepo. Each folder under `apps/` is one container image; `packages/` holds
-  code shared between apps (empty so far). npm workspaces, one lockfile.
-- `apps/web`: the whole service today. Hono HTTP server (Kubernetes, local dev)
-  and a Lambda Function URL handler, same code.
-- Database: Amazon Aurora DSQL (prod), vanilla Postgres (homelab demo), PGlite
-  (tests, `npm run dev`). All SQL stays within the DSQL-compatible subset: UUID
-  keys, no foreign keys, no triggers, no extensions. Fuzzy name matching happens
-  in the app.
+- Rust. A Cargo workspace; each crate under `apps/` is one container image and
+  may hold several binaries. Shared code goes in further workspace crates.
+- `apps/web`: the whole service today. axum HTTP server (Kubernetes, local dev)
+  and a Lambda Function URL handler, same code, two binaries.
+- Database: Amazon Aurora DSQL (prod), vanilla Postgres (homelab demo and tests,
+  embedded during `cargo test`). All SQL stays within the DSQL-compatible
+  subset: UUID keys, no foreign keys, no triggers, no extensions. Fuzzy name
+  matching happens in the app.
 - `/` lists accepted records and searches them (fuzzy author name, DOI, title);
   `/report` is the intake form. Accepted records show the subject, paper and the
   review team's summary; the reporter is never shown anywhere public.
@@ -26,29 +26,28 @@ accepted records before a publication decision.
 ## Layout
 
 ```
-apps/web/            web app + Lambda handler (src/, test/, package.json)
-packages/            shared workspaces (none yet)
+Cargo.toml           workspace: members = apps/*
+apps/web/            crate authorship-registry-web: src/ (lib + bins web, lambda), tests/
 Dockerfile           builds any app: docker build --build-arg APP=web .
-.github/workflows/   typecheck + tests, then one image per app to
-                     ghcr.io/orbli/authorship-registry/<app>
+.github/workflows/   fmt + clippy + tests, then one image per app, built natively
+                     on amd64 and arm64 runners, to ghcr.io/orbli/authorship-registry/<app>
 deploy/k8s/          Kubernetes demo manifests (fake data only)
-infra/               AWS CDK: Lambda + DSQL + CloudFront, region eu-north-1
+infra/               AWS CDK (TypeScript; AWS has no Rust CDK): Lambda + DSQL + CloudFront
 ```
 
 ## Day to day
 
 ```
-npm ci
-npm run dev            # PGlite + console mailer, http://localhost:3000
-npm test               # 24 tests incl. the full report -> email -> review flow
-npm run typecheck
-npm run build          # every app
+cargo test                      # unit + end-to-end flow (embedded PostgreSQL, downloaded once)
+DATABASE_URL=... cargo run      # console mailer by default, http://localhost:3000
+cargo run -- migrate
+cargo clippy --workspace --all-targets
+cargo fmt --all
 ```
 
-Adding a second container: create `apps/<name>` with its own `package.json`
-(`build` must emit `dist/server.js`), add `<name>` to the matrix in
-`.github/workflows/image.yml`, add a Deployment in `deploy/k8s/`. The first push
-creates a new, private GHCR package; flip it to public or give the cluster a
-pull secret.
+Adding a second container: create `apps/<name>` as crate
+`authorship-registry-<name>` with a binary named `<name>`, add `<name>` to the
+two matrices in `.github/workflows/image.yml`, add a Deployment in
+`deploy/k8s/`. The package on GHCR inherits the repo's visibility.
 
 Operations, environment variables and the AWS deploy: `infra/README.md`.

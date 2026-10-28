@@ -20,41 +20,49 @@ with a magic link emailed to a pre-registered address; there are no passwords.
 
 ## Shape
 
-- One stateless Node.js 22 HTTP server (Hono, server-rendered HTML), one database.
-- All SQL stays inside the Aurora DSQL subset so the same code runs on DSQL,
-  vanilla Postgres and embedded PGlite: UUID keys generated in the app, no
-  foreign keys, no triggers, no extensions, one statement per query, indexes
-  created `ASYNC` on DSQL. Fuzzy name matching happens in the app (`apps/web/src/names.ts`).
-- Entry points (in `apps/web`): `src/server.ts` (plain HTTP server for Kubernetes, local dev and
-  Lambda Web Functions), `src/lambda.ts` (Lambda Function URL handler).
+- One stateless Rust HTTP server (axum, server-rendered HTML via maud), one database.
+- All SQL stays inside the Aurora DSQL subset so the same code runs on DSQL and
+  vanilla Postgres: UUID keys generated in the app, no foreign keys, no
+  triggers, no extensions, one statement per query, indexes created `ASYNC` on
+  DSQL. Fuzzy name matching happens in the app (`apps/web/src/names.rs`).
+- Two binaries from the same crate (`apps/web`): `web` (plain HTTP server for
+  Kubernetes and local dev, plus `migrate` and `mail-test` subcommands) and
+  `lambda` (Lambda Function URL handler via `lambda_http`).
 
 ## Run locally
 
+Needs a Rust toolchain (https://rustup.rs) and a PostgreSQL to point at.
+
 ```
-npm install
-npm run dev            # embedded Postgres, emails printed to the terminal
-ADMIN_EMAIL=you@example.org npm run dev   # seeds you as admin so you can sign in
-npm test               # 24 tests: unit + full end-to-end flow
+DATABASE_URL=postgres://user:pass@localhost/registry MAIL_DRIVER=console ADMIN_EMAIL=you@example.org cargo run
+cargo test             # unit tests + end-to-end flow against an embedded PostgreSQL (downloaded once to ~/.theseus)
+TEST_DATABASE_URL=postgres://... cargo test   # or run the tests against your own server
+cargo run -- migrate   # apply migrations and seed the admin, then exit
+cargo run -- mail-test you@example.org
 ```
 
 ## Configuration (environment)
 
 | Variable | Meaning |
 |---|---|
-| `DB_DIALECT` | `pglite` (dev), `postgres`, or `dsql`. Inferred from the two below if unset. |
+| `DB_DIALECT` | `postgres` or `dsql`. Inferred from the two below if unset. |
 | `DATABASE_URL` | Postgres URL, for `postgres` |
 | `DSQL_ENDPOINT` | `<id>.dsql.<region>.on.aws`, for `dsql` (IAM auth, no password) |
-| `MAIL_DRIVER` | `console` or `ses` |
+| `MAIL_DRIVER` | `console`, `smtp` or `ses` |
 | `SENDER_EMAIL` | Verified SES sender |
 | `BASE_URL` | Public origin for links in emails. Unset on Lambda = use the request origin. |
 | `ADMIN_EMAIL` | Seeded as admin on first migration |
 | `GOOGLE_CLIENT_ID` | Enables "Sign in with Google" for staff (see below). Unset = button hidden. |
 | `GOOGLE_CLIENT_SECRET` / `GOOGLE_CLIENT_SECRET_PARAM` | The OAuth client secret, inline or as an SSM SecureString name |
-| `MIGRATE_ON_START` | default `true`; or run `npm run migrate` separately |
+| `MIGRATE_ON_START` | default `true`; or run `web migrate` separately |
+| `RUST_LOG` | log filter, default `info` |
 
 ## Deploy: AWS, scale to zero (`infra/`)
 
-Lambda (arm64, zip, no Docker needed) + Aurora DSQL + SES, via CDK.
+Lambda (arm64, zip) + Aurora DSQL + SES, via CDK. The function is the `lambda`
+binary, built by [cargo-lambda](https://www.cargo-lambda.info) (`pip install
+cargo-lambda`, or let the construct fall back to Docker) on the
+`provided.al2023` runtime.
 
 ```
 cd infra && npm install
@@ -80,8 +88,10 @@ plan (free vs paid, `aws freetier get-account-plan-state`) has nothing to do wit
 
 ## Deploy: Kubernetes demo (`deploy/k8s/`)
 
-For a homelab or any cluster. Fake data only. Image is built multi-arch
-(amd64 + arm64) by GitHub Actions to `ghcr.io/orbli/authorship-registry/web`.
+For a homelab or any cluster. Fake data only. The image is built natively on
+amd64 and arm64 runners by GitHub Actions and merged into one multi-arch tag,
+`ghcr.io/orbli/authorship-registry/web`. The runtime image is Debian slim plus
+one binary; no interpreter.
 
 ```
 kubectl apply -k deploy/k8s     # after creating the two secrets named in kustomization.yaml

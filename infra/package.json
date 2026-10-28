@@ -9,11 +9,14 @@
     "diff": "cdk diff"
   },
   "devDependencies": {
+    "@types/node": "^22",
     "aws-cdk": "^2.1146.1",
     "aws-cdk-lib": "^2.274.0",
     "constructs": "^10.4.2",
     "tsx": "^4.23.15",
-    "typescript": "^5.9",
-    "@types/node": "^22"
+    "typescript": "^5.9"
+  },
+  "dependencies": {
+    "cargo-lambda-cdk": "^0.0.36"
   }
 }

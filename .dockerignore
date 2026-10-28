@@ -1,11 +1,9 @@
 .git
 .github
-node_modules
-**/node_modules
-**/dist
+target
+**/target
 infra
 deploy
 .env
 .env.*
 *.md
-**/test

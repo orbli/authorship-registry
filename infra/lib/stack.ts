@@ -8,7 +8,7 @@ import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as dsql from 'aws-cdk-lib/aws-dsql';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
-import { NodejsFunction, OutputFormat } from 'aws-cdk-lib/aws-lambda-nodejs';
+import { RustFunction } from 'cargo-lambda-cdk';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as ses from 'aws-cdk-lib/aws-ses';
 import type { Construct } from 'constructs';
@@ -78,28 +78,18 @@ export class RegistryStack extends cdk.Stack {
     const originSecret = props.domainName ? randomBytes(24).toString('hex') : undefined;
     const publicUrl = props.baseUrl ?? (props.domainName ? `https://${props.domainName}` : undefined);
 
-    // --- Web app: one Node.js function, zip-bundled with esbuild (no Docker), arm64 for price.
-    const fn = new NodejsFunction(this, 'Web', {
-      entry: path.join(appRoot, 'apps', 'web', 'src', 'lambda.ts'),
-      projectRoot: appRoot,
-      depsLockFilePath: path.join(appRoot, 'package-lock.json'),
-      runtime: lambda.Runtime.NODEJS_22_X,
+    // --- Web app: one Rust function (the `lambda` binary of apps/web), built by cargo-lambda
+    // (installed locally, else in Docker), zip-deployed on the provided.al2023 runtime, arm64 for price.
+    const fn = new RustFunction(this, 'Web', {
+      manifestPath: path.join(appRoot, 'apps', 'web', 'Cargo.toml'),
+      binaryName: 'lambda',
+      runtime: 'provided.al2023',
       architecture: lambda.Architecture.ARM_64,
-      memorySize: 512,
+      memorySize: 256,
       timeout: cdk.Duration.seconds(20),
       logGroup: new logs.LogGroup(this, 'WebLogs', { retention: logs.RetentionDays.THREE_MONTHS, removalPolicy: cdk.RemovalPolicy.DESTROY }),
-      bundling: {
-        format: OutputFormat.ESM,
-        target: 'node22',
-        tsconfig: path.join(appRoot, 'tsconfig.json'),
-        externalModules: ['@electric-sql/pglite'],
-        // pg and the SDK use require() internally; give ESM output a require shim.
-        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
-        sourceMap: true,
-        minify: false,
-      },
       environment: {
-        NODE_OPTIONS: '--enable-source-maps',
+        RUST_LOG: 'info',
         DB_DIALECT: 'dsql',
         DSQL_ENDPOINT: dsqlEndpoint,
         ...mailEnv,

@@ -11,3 +11,5 @@ __pycache__/
 infra/node_modules/
 infra/cdk.out/
 cdk.context.json
+target/
+**/target/
